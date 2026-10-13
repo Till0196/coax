@@ -1,0 +1,45 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding the PLEX PX-S1UR and the DigiBest ISDBT2071
+; (DTV03A-1TU) to the in-box WinUSB driver. Production distribution requires
+; a signed catalog.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = s1ur-winusb.cat
+DriverVer   = 09/05/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%S1URName%      = WinUSBInstall, USB\VID_0511&PID_0855
+%ISDBT2071Name% = WinUSBInstall, USB\VID_0511&PID_0052
+
+[DeviceList.NTarm64]
+%S1URName%      = WinUSBInstall, USB\VID_0511&PID_0855
+%ISDBT2071Name% = WinUSBInstall, USB\VID_0511&PID_0052
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{E2B3FC80-720A-4C6C-A8AF-05A926D72F90}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "PLEX"
+S1URName         = "PLEX PX-S1UR (WinUSB)"
+ISDBT2071Name    = "DigiBest ISDBT2071 / DTV03A-1TU (WinUSB)"

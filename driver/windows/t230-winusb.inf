@@ -1,0 +1,57 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding the MyGica T230 family (T230, T230C, T230C Lite,
+; T230A, T230C2, T230C2 Lite) to the in-box WinUSB driver. Production
+; distribution requires a signed catalog.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = t230-winusb.cat
+DriverVer   = 08/16/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%T230Name%        = WinUSBInstall, USB\VID_0572&PID_C688
+%T230CName%       = WinUSBInstall, USB\VID_0572&PID_C689
+%T230CLiteName%   = WinUSBInstall, USB\VID_0572&PID_C699
+%T230AName%       = WinUSBInstall, USB\VID_0572&PID_689A
+%T230C2Name%      = WinUSBInstall, USB\VID_0572&PID_C68A
+%T230C2LiteName%  = WinUSBInstall, USB\VID_0572&PID_C69A
+
+[DeviceList.NTarm64]
+%T230Name%        = WinUSBInstall, USB\VID_0572&PID_C688
+%T230CName%       = WinUSBInstall, USB\VID_0572&PID_C689
+%T230CLiteName%   = WinUSBInstall, USB\VID_0572&PID_C699
+%T230AName%       = WinUSBInstall, USB\VID_0572&PID_689A
+%T230C2Name%      = WinUSBInstall, USB\VID_0572&PID_C68A
+%T230C2LiteName%  = WinUSBInstall, USB\VID_0572&PID_C69A
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{9C3F8B68-4775-4FC3-BE29-14F7A6D5E7D1}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "MyGica"
+T230Name         = "MyGica T230 (WinUSB)"
+T230CName        = "MyGica T230C (WinUSB)"
+T230CLiteName    = "MyGica T230C Lite (WinUSB)"
+T230AName        = "MyGica T230A (WinUSB)"
+T230C2Name       = "MyGica T230C2 (WinUSB)"
+T230C2LiteName   = "MyGica T230C2 Lite (WinUSB)"

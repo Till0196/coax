@@ -1,0 +1,41 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding US-3POUT to the in-box WinUSB driver.
+; Production distribution requires a signed catalog.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = us3pout-winusb.cat
+DriverVer   = 08/16/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%DeviceName% = WinUSBInstall, USB\VID_0511&PID_0045
+
+[DeviceList.NTarm64]
+%DeviceName% = WinUSBInstall, USB\VID_0511&PID_0045
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{F3E81358-A040-4482-9BAB-D8EDBD4359CA}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "US-3POUT"
+DeviceName       = "US-3POUT (WinUSB)"

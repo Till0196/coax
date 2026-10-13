@@ -1,0 +1,1627 @@
+{
+    "components": {
+        "schemas": {
+            "hostapi.Board": {
+                "properties": {
+                    "backend": {
+                        "type": "string"
+                    },
+                    "deliveries": {
+                        "description": "Deliveries is every delivery system some tuner of this board reaches.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "location": {
+                        "description": "Location is the bus and address. Not part of the name: the kernel reassigns\nit.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "description": "Name is what the board is known by; its tuners' names are built on it.",
+                        "type": "string"
+                    },
+                    "naming": {
+                        "description": "Naming says what the name was built from, and Stable whether it survives the\nboard being unplugged and put back into the same socket.",
+                        "type": "string"
+                    },
+                    "open": {
+                        "description": "Open is whether the daemon is holding the board open right now.",
+                        "type": "boolean"
+                    },
+                    "port": {
+                        "type": "string"
+                    },
+                    "probe_error": {
+                        "description": "ProbeError says why an ?open=1 listing could not confirm this board. Empty\nwhen nothing was tried or nothing went wrong, so an unconfirmed answer never\npasses for a confirmed one.",
+                        "type": "string"
+                    },
+                    "probed": {
+                        "description": "Probed reports whether the tuners below were read from the hardware. False\nmeans they were worked out from the board's identifiers, which is the\ndefault: opening a board powers it up and loads firmware, and listing is not\na request to do that.",
+                        "type": "boolean"
+                    },
+                    "serial": {
+                        "type": "string"
+                    },
+                    "stable": {
+                        "type": "boolean"
+                    },
+                    "tuners": {
+                        "items": {
+                            "$ref": "#/components/schemas/hostapi.Tuner"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.Card": {
+                "properties": {
+                    "backend": {
+                        "type": "string"
+                    },
+                    "board": {
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "present": {
+                        "description": "Present is filled in only when the slot was looked at, which means opening\nthe board.",
+                        "type": "boolean"
+                    },
+                    "reader": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.CardConnection": {
+                "properties": {
+                    "atr": {
+                        "description": "ATR is the card's answer to reset, which is what identifies it.",
+                        "type": "string"
+                    },
+                    "max_input": {
+                        "description": "MaxInput is the longest command APDU this reader carries, the paths behind it\nmoving one T=1 block per message.",
+                        "type": "integer"
+                    },
+                    "protocol": {
+                        "description": "Protocol is what the reader and the card agreed on; these speak T=1 only.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.CardRelease": {
+                "properties": {
+                    "released": {
+                        "description": "Released reports whether this connection was holding what it asked to give up.\nA false is not a failure: a client tidying up may ask twice.",
+                        "type": "boolean"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.CardRequest": {
+                "properties": {
+                    "apdus": {
+                        "description": "APDUs are command APDUs in hexadecimal; separators are ignored.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.CardSession": {
+                "properties": {
+                    "atr": {
+                        "type": "string"
+                    },
+                    "exchanges": {
+                        "items": {
+                            "$ref": "#/components/schemas/hostapi.Exchange"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.CardState": {
+                "properties": {
+                    "atr": {
+                        "type": "string"
+                    },
+                    "changed": {
+                        "description": "Changed says whether the count moved while this request waited, as against the\nwait running out.",
+                        "type": "boolean"
+                    },
+                    "events": {
+                        "description": "Events counts the insertions and removals this slot has seen. A client passes\nthe last one it knows as `since` and is answered when the count moves.",
+                        "type": "integer"
+                    },
+                    "present": {
+                        "type": "boolean"
+                    },
+                    "sharing": {
+                        "description": "Sharing is how many connections hold the card, or -1 when one holds it\nexclusively.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.CardTransmitRequest": {
+                "properties": {
+                    "apdu": {
+                        "description": "APDU is one command in hexadecimal; separators are ignored.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.CardTransmitResult": {
+                "properties": {
+                    "protocol": {
+                        "type": "string"
+                    },
+                    "response": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is the two trailing status bytes.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.Controls": {
+                "description": "Controls is what a channel may set on this tuner beside the channel: the\nsupply on its lead (lnb_power) and its gain. Known from the model, so it is\nthere before the board is opened. Absent where there is nothing to set --\nwhich is what tells a client not to offer it.",
+                "properties": {
+                    "gain": {
+                        "$ref": "#/components/schemas/hostapi.GainControl"
+                    },
+                    "lnb": {
+                        "$ref": "#/components/schemas/hostapi.LNBControl"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.Exchange": {
+                "properties": {
+                    "command": {
+                        "type": "string"
+                    },
+                    "response": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Status is the two trailing status bytes.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.Failure": {
+                "properties": {
+                    "error": {
+                        "$ref": "#/components/schemas/hostapi.Problem"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/hostapi.TuneResult"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.GainControl": {
+                "description": "Gain is present where gain is honoured.",
+                "properties": {
+                    "decibels": {
+                        "description": "Decibels is the steps, least first, for kind \"steps\".",
+                        "items": {
+                            "type": "number"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "deliveries": {
+                        "description": "Deliveries narrows the setting to these systems, where the amplifier sits on\none input only. Absent means every system the tuner tunes.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "kind": {
+                        "description": "Kind is \"switch\" for an amplifier that is in or out (min, max, auto) and\n\"steps\" for one with levels, which a gain in dB is matched to.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.LNBControl": {
+                "description": "LNB is present where lnb_power is honoured.",
+                "properties": {
+                    "high": {
+                        "type": "string"
+                    },
+                    "levels": {
+                        "description": "Levels is what lnb_power accepts here: \"off\" where the supply can be\nswitched off, then \"low\" and \"high\".",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "low": {
+                        "description": "Low and High are what the two levels are worth (\"11V\", \"15V\"), absent for a\nsupply that is only on or off.",
+                        "type": "string"
+                    },
+                    "shared": {
+                        "description": "Shared is \"board\" or \"card\" where one supply feeds more than this tuner.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.Problem": {
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "description": "Reason narrows a code that covers more than one situation.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.Setting": {
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.StreamCounts": {
+                "description": "Stream is what the multiplex looked like on the way out, while streaming.",
+                "properties": {
+                    "bytes": {
+                        "description": "Bytes is everything the tuner produced; Packets is what was recognised as a\npacket, stuffing included; Skipped is bytes outside any packet.",
+                        "type": "integer"
+                    },
+                    "compressed_ip": {
+                        "type": "integer"
+                    },
+                    "control": {
+                        "description": "Control is the TLV signalling that describes the multiplex, and IPv4, IPv6 and\nCompressedIP how the datagrams inside are carried. TLV only.",
+                        "type": "integer"
+                    },
+                    "discontinuities": {
+                        "description": "Discontinuities is packets that did not follow the last one in their own run\n-- a TS continuity counter within a PID, or an MMTP sequence number within a\npacket identifier. Missing data, not damaged data.",
+                        "type": "integer"
+                    },
+                    "errors": {
+                        "description": "Errors is packets the demodulator marked as uncorrectable. TS only.",
+                        "type": "integer"
+                    },
+                    "forgotten": {
+                        "description": "Forgotten counts times the sequence table was emptied because more runs\nappeared at once than any multiplex has. Anything but zero means the stream\nis being read as something it is not, and Discontinuities beside it cannot\nbe believed.",
+                        "type": "integer"
+                    },
+                    "format": {
+                        "description": "Format is which multiplex this was read as, \"ts\" or \"tlv\". It decides which\nfields below are filled in.",
+                        "type": "string"
+                    },
+                    "ipv4": {
+                        "type": "integer"
+                    },
+                    "ipv6": {
+                        "type": "integer"
+                    },
+                    "nulls": {
+                        "description": "Nulls is stuffing. A multiplex that is almost all stuffing is one whose\nservices are not arriving.",
+                        "type": "integer"
+                    },
+                    "packets": {
+                        "type": "integer"
+                    },
+                    "scrambled": {
+                        "description": "Scrambled is packets still carrying their scrambling bits. TS only.",
+                        "type": "integer"
+                    },
+                    "skipped": {
+                        "type": "integer"
+                    },
+                    "sync_losses": {
+                        "description": "SyncLosses counts breaks in packet-boundary alignment, not packets.",
+                        "type": "integer"
+                    },
+                    "undecodable": {
+                        "description": "Undecodable is TLV packets whose MMTP header could not be reached. TLV only.",
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.TuneResult": {
+                "description": "Status carries whatever was measured before the request failed, so a scan\nstill gets the signal strength of a frequency that did not lock.",
+                "properties": {
+                    "backend": {
+                        "type": "string"
+                    },
+                    "cnr": {
+                        "type": "number"
+                    },
+                    "elapsed_ms": {
+                        "type": "integer"
+                    },
+                    "ignored": {
+                        "description": "Ignored names properties left out of the tuning because they describe what a\nmultiplex carries rather than how to receive it, so a caller pasting in a\nchannel-file section can see what was not used.",
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "locked": {
+                        "type": "boolean"
+                    },
+                    "quality": {
+                        "type": "number"
+                    },
+                    "relative_streams": {
+                        "description": "RelativeStreams is how many places a satellite transponder's table holds,\nfor a driver that names a stream by its place rather than by its identifier.\nThe Earthsoft character devices read the transmission control block\nthemselves and take an index into it -- the numbering recpt1 writes as\nBS01_1 -- so a caller holding identifiers from a network table needs this\ncount to translate them.",
+                        "type": "integer"
+                    },
+                    "status": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "strength": {
+                        "type": "number"
+                    },
+                    "tuner": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.Tuner": {
+                "properties": {
+                    "cnr": {
+                        "type": "number"
+                    },
+                    "controls": {
+                        "$ref": "#/components/schemas/hostapi.Controls"
+                    },
+                    "deliveries": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "dropped": {
+                        "description": "Dropped is transport packets thrown away because the reader could not keep up.\nIt separates a recording that lost data from one fed a poor signal.",
+                        "type": "integer"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "index": {
+                        "type": "integer"
+                    },
+                    "leased": {
+                        "type": "boolean"
+                    },
+                    "locked": {
+                        "description": "The rest is filled in only while the tuner is in use: reading it means talking\nto the hardware.",
+                        "type": "boolean"
+                    },
+                    "mode": {
+                        "description": "Mode is a hardware setting beside the channel, where the tuner has one: a TBS\ncard's demodulator mode, shared by the whole card. Absent for most tuners.",
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "priority": {
+                        "description": "Priority is how much the work holding this tuner said it mattered, as its\nX-Coax-Priority header gave it. Absent for a tuner nobody holds: zero is a\nreal priority, so \"nobody holds it\" cannot be spelled as zero.",
+                        "type": "integer"
+                    },
+                    "quality": {
+                        "type": "number"
+                    },
+                    "settings": {
+                        "description": "Settings is what a driver measured, not what it was asked for.",
+                        "items": {
+                            "$ref": "#/components/schemas/hostapi.Setting"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "status": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    },
+                    "stream": {
+                        "$ref": "#/components/schemas/hostapi.StreamCounts"
+                    },
+                    "strength": {
+                        "type": "number"
+                    },
+                    "tuned": {
+                        "description": "Tuned is the channel the tuner is set to, as the properties the tune took --\nwhat was asked for. Absent for a tuner nobody holds or one not yet tuned.",
+                        "items": {
+                            "$ref": "#/components/schemas/hostapi.Setting"
+                        },
+                        "type": "array",
+                        "uniqueItems": false
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.Version": {
+                "properties": {
+                    "arch": {
+                        "description": "Arch is the processor the build is for (GOARCH: amd64, arm64), so that a\nclient can say which binary is running beside which it has on disk.",
+                        "type": "string"
+                    },
+                    "commit": {
+                        "type": "string"
+                    },
+                    "started": {
+                        "description": "Started lets a client tell a daemon it just launched from one already running.",
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            }
+        }
+    },
+    "info": {
+        "description": "The tuner daemon's interface. One process owns the hardware and hands out what it receives; this is how everything else asks.\nThis number is the description's own: its last part moves when something is added that an existing client can ignore, and its first when a shape an existing client reads changes out from under it. It is not the daemon's version, which is what GET /version reports.\nA daemon that does not know a parameter refuses the whole request rather than ignoring it, so a client sends only what is described here.",
+        "license": {
+            "name": "GPL-2.0-or-later"
+        },
+        "title": "coaxd",
+        "version": "1.0.0"
+    },
+    "externalDocs": {
+        "description": "",
+        "url": ""
+    },
+    "paths": {
+        "/cards": {
+            "get": {
+                "description": "Every card slot the attached boards carry.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/hostapi.Card"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "The card slots",
+                "tags": [
+                    "cards"
+                ]
+            }
+        },
+        "/cards/{id}": {
+            "get": {
+                "description": "With `probe=1` the slot is really read, which says whether a card is in it rather than whether the board has one.",
+                "parameters": [
+                    {
+                        "description": "the slot, as a listing names it",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "read the slot to find out whether a card is in it",
+                        "in": "query",
+                        "name": "probe",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Card"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "no slot of that name"
+                    }
+                },
+                "summary": "One card slot",
+                "tags": [
+                    "cards"
+                ]
+            }
+        },
+        "/cards/{id}/connect": {
+            "delete": {
+                "description": "Releases the card this connection holds, ending a transaction first if one was open. Closing the connection does the same, so this is for a client that means to carry on using it.",
+                "parameters": [
+                    {
+                        "description": "the slot, as a listing names it",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "what to do with the card: leave, reset, unpower or eject",
+                        "in": "query",
+                        "name": "disposition",
+                        "schema": {
+                            "enum": [
+                                "leave",
+                                "reset",
+                                "unpower",
+                                "eject"
+                            ],
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.CardRelease"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "no such disposition"
+                    }
+                },
+                "summary": "Give a card back",
+                "tags": [
+                    "cards"
+                ]
+            },
+            "post": {
+                "description": "Opens the card in a slot and holds it for the HTTP connection this request arrived on, which is what a client speaking PC/SC needs: a run of commands where each depends on the last, with no reset in between. The card is given up when the connection closes, however it closes, so there is nothing to expire and nothing to clean up after a client that vanished. One connection holds one card; a client wanting two opens two connections.",
+                "parameters": [
+                    {
+                        "description": "the slot, as a listing names it",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.CardConnection"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "no slot of that name"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "this connection already holds a card"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "the card did not answer"
+                    }
+                },
+                "summary": "Open a card",
+                "tags": [
+                    "cards"
+                ]
+            }
+        },
+        "/cards/{id}/events": {
+            "get": {
+                "description": "Answers when the slot's event count leaves `since`, or when `wait` runs out. This is what a client watching for a card being seated or removed asks, instead of polling the daemon: the polling that has to happen belongs next to the hardware, and a slot is only watched while somebody is waiting on it. A zero `wait` answers at once with the state as it stands.",
+                "parameters": [
+                    {
+                        "description": "the slot, as a listing names it",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "the event count the caller last saw; the answer waits until it moves",
+                        "in": "query",
+                        "name": "since",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "how many seconds to wait, up to the daemon's own limit; zero answers at once",
+                        "in": "query",
+                        "name": "wait",
+                        "schema": {
+                            "type": "number"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.CardState"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "since or wait could not be read"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "no slot of that name"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "the slot could not be read"
+                    }
+                },
+                "summary": "Wait for the slot to change",
+                "tags": [
+                    "cards"
+                ]
+            }
+        },
+        "/cards/{id}/session": {
+            "post": {
+                "description": "A card is stateful: what a command answers depends on what came before it. So a session is one reset and the run of commands that follows, carried out with nothing else in between.",
+                "parameters": [
+                    {
+                        "description": "the slot, as a listing names it",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/hostapi.CardRequest",
+                                        "summary": "session",
+                                        "description": "the commands to send after the reset"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "the commands to send after the reset",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.CardSession"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "the request could not be understood"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "no slot of that name"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "the card did not answer"
+                    }
+                },
+                "summary": "One reset and the commands after it",
+                "tags": [
+                    "cards"
+                ]
+            }
+        },
+        "/cards/{id}/transaction": {
+            "delete": {
+                "description": "Ends the transaction this connection has on the card, applying a disposition to it.",
+                "parameters": [
+                    {
+                        "description": "the slot, as a listing names it",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "what to do with the card: leave, reset, unpower or eject",
+                        "in": "query",
+                        "name": "disposition",
+                        "schema": {
+                            "enum": [
+                                "leave",
+                                "reset",
+                                "unpower",
+                                "eject"
+                            ],
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.CardRelease"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "no such disposition"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "the card did not answer"
+                    }
+                },
+                "summary": "Release the claim",
+                "tags": [
+                    "cards"
+                ]
+            },
+            "post": {
+                "description": "Holds the card against every other connection sharing it until the transaction is ended. Ending the HTTP connection ends it too, so a client that dies mid-transaction does not leave the card claimed.",
+                "parameters": [
+                    {
+                        "description": "the slot, as a listing names it",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.CardRelease"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "this connection holds no card, or already has a transaction"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "the card did not answer"
+                    }
+                },
+                "summary": "Claim the card",
+                "tags": [
+                    "cards"
+                ]
+            }
+        },
+        "/cards/{id}/transmit": {
+            "post": {
+                "description": "Sends one command APDU to the card this connection holds and returns what it said, including the two status bytes. The card must have been opened on this connection first.",
+                "parameters": [
+                    {
+                        "description": "the slot, as a listing names it",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "type": "object"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/hostapi.CardTransmitRequest",
+                                        "summary": "transmit",
+                                        "description": "the command to send"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "description": "the command to send",
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.CardTransmitResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "the request could not be understood"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "this connection holds no card in that slot"
+                    },
+                    "502": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "the card did not answer"
+                    }
+                },
+                "summary": "Send one command",
+                "tags": [
+                    "cards"
+                ]
+            }
+        },
+        "/openapi.json": {
+            "get": {
+                "description": "The OpenAPI 3.1 document for everything here, generated from the handlers and the shapes they answer with.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "description": "the OpenAPI document"
+                    }
+                },
+                "summary": "This interface, described",
+                "tags": [
+                    "meta"
+                ]
+            }
+        },
+        "/stream": {
+            "get": {
+                "description": "The endpoint everything else exists for. Takes the same parameters as /tune and then streams what the tuner receives, chunked, until the connection closes or a bound is reached.\n\n**The connection is the lease.** The tuner is held for as long as the connection is open and given back when it closes, however it closes -- so a client that vanishes does not strand hardware.\n\nUnless `sync=off`, the first part of the stream is checked for transport or TLV framing before anything is sent, and a tuner locked to noise is refused rather than recorded in silence.",
+                "parameters": [
+                    {
+                        "description": "which tuner, as a listing names it; any that will serve when omitted",
+                        "in": "query",
+                        "name": "tuner",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "DELIVERY_SYSTEM",
+                        "in": "query",
+                        "name": "system",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "FREQUENCY, in Hz, or kHz for satellite",
+                        "in": "query",
+                        "name": "freq",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "STREAM_ID",
+                        "in": "query",
+                        "name": "stream_id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "BANDWIDTH_HZ",
+                        "in": "query",
+                        "name": "bandwidth_hz",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "SYMBOL_RATE",
+                        "in": "query",
+                        "name": "symbol_rate",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "MODULATION",
+                        "in": "query",
+                        "name": "modulation",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "POLARIZATION",
+                        "in": "query",
+                        "name": "polarization",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "ROLLOFF",
+                        "in": "query",
+                        "name": "rolloff",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "LNA",
+                        "in": "query",
+                        "name": "lna",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "front-end gain",
+                        "in": "query",
+                        "name": "gain",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "the supply on a satellite lead: off, low or high",
+                        "in": "query",
+                        "name": "lnb_power",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "the low-noise block on the dish",
+                        "in": "query",
+                        "name": "lnbf",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "how long to wait for a lock, as a duration",
+                        "in": "query",
+                        "name": "lock_timeout",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "how long to wait after the supply comes up, as a duration",
+                        "in": "query",
+                        "name": "settle",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "when the stream starts: lock, or now",
+                        "in": "query",
+                        "name": "begin",
+                        "schema": {
+                            "enum": [
+                                "lock",
+                                "now"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "stop after this many bytes",
+                        "in": "query",
+                        "name": "bytes",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "description": "stop after this long, as a duration",
+                        "in": "query",
+                        "name": "for",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "check the framing before sending anything",
+                        "in": "query",
+                        "name": "sync",
+                        "schema": {
+                            "enum": [
+                                "on",
+                                "off"
+                            ],
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "how much this work matters; a tuner is taken from work that asked at a lower number, never from work that asked at the same. 0 when not given",
+                        "in": "header",
+                        "name": "X-Coax-Priority",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "video/mp2t": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "the transport stream"
+                    },
+                    "400": {
+                        "content": {
+                            "video/mp2t": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "a parameter could not be understood"
+                    },
+                    "404": {
+                        "content": {
+                            "video/mp2t": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "no tuner of that name is attached"
+                    },
+                    "409": {
+                        "content": {
+                            "video/mp2t": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "every tuner that would serve is in use"
+                    },
+                    "502": {
+                        "content": {
+                            "video/mp2t": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "the tuner locked to something that is not a transport stream"
+                    }
+                },
+                "summary": "Tune, and hand over the transport stream",
+                "tags": [
+                    "receiving"
+                ]
+            }
+        },
+        "/tune": {
+            "get": {
+                "description": "Takes a tuner, tunes it, waits for a lock and answers what it found. **It does not return the transport stream**; it is what a scan uses to ask whether a channel is there.\n\nCase decides what a parameter is. A name in capitals is a channel-file property, passed through exactly as written, so a section of a channel file can be handed over as it stands. A name in lower case is a shorthand or one of the controls, and an unknown one in lower case is refused rather than ignored.",
+                "parameters": [
+                    {
+                        "description": "which tuner, as a listing names it; any that will serve when omitted",
+                        "in": "query",
+                        "name": "tuner",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "DELIVERY_SYSTEM",
+                        "in": "query",
+                        "name": "system",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "FREQUENCY, in Hz, or kHz for satellite",
+                        "in": "query",
+                        "name": "freq",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "STREAM_ID",
+                        "in": "query",
+                        "name": "stream_id",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "BANDWIDTH_HZ",
+                        "in": "query",
+                        "name": "bandwidth_hz",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "SYMBOL_RATE",
+                        "in": "query",
+                        "name": "symbol_rate",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "MODULATION",
+                        "in": "query",
+                        "name": "modulation",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "POLARIZATION",
+                        "in": "query",
+                        "name": "polarization",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "ROLLOFF",
+                        "in": "query",
+                        "name": "rolloff",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "LNA",
+                        "in": "query",
+                        "name": "lna",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "front-end gain: auto, min, max, or a level with its unit such as +13dB",
+                        "in": "query",
+                        "name": "gain",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "the supply on a satellite lead: off, low or high. Nothing is fed when it is not given",
+                        "in": "query",
+                        "name": "lnb_power",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "the low-noise block on the dish, when freq is a downlink frequency",
+                        "in": "query",
+                        "name": "lnbf",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "how long to wait for a lock, as a duration",
+                        "in": "query",
+                        "name": "lock_timeout",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "how long to wait after the supply comes up, as a duration",
+                        "in": "query",
+                        "name": "settle",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "how much this work matters; a tuner is taken from work that asked at a lower number, never from work that asked at the same. 0 when not given",
+                        "in": "header",
+                        "name": "X-Coax-Priority",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.TuneResult"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "a parameter could not be understood"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "no tuner of that name is attached"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "every tuner that would serve is in use"
+                    }
+                },
+                "summary": "Tune, and say what happened",
+                "tags": [
+                    "receiving"
+                ]
+            }
+        },
+        "/tuners": {
+            "get": {
+                "description": "Every board and the tuners on it.\n\nNothing is opened unless asked for. Opening a board powers it and on some models loads firmware, which is not a reasonable thing to do to answer a question about what is plugged in -- so the configuration is answered from what each backend knows about the model, and marked `probed: false`. With `open=1` each board is really opened and the answer is marked `probed: true`.",
+                "parameters": [
+                    {
+                        "description": "open each board to confirm what is on it",
+                        "in": "query",
+                        "name": "open",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/hostapi.Board"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "What is attached",
+                "tags": [
+                    "tuners"
+                ]
+            }
+        },
+        "/tuners/{id}": {
+            "get": {
+                "description": "Lock, carrier-to-noise, input level, quality and dropped packets, plus the statistics of the multiplex leaving it when it is streaming.\n\nIt may be asked while the tuner is streaming; that is what it is for. A tuner that is not streaming has no `stream` key at all rather than one full of zeroes, because \"saw no packets\" and \"saw no broken packets\" are opposite answers.",
+                "parameters": [
+                    {
+                        "description": "the tuner, as a listing names it",
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Tuner"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Failure"
+                                }
+                            }
+                        },
+                        "description": "no tuner of that name is attached"
+                    }
+                },
+                "summary": "One tuner, and what it is doing",
+                "tags": [
+                    "tuners"
+                ]
+            }
+        },
+        "/version": {
+            "get": {
+                "description": "The protocol number a client checks against what it was built for, and what this build is. Nothing here touches hardware, so it answers whatever else is going on.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/hostapi.Version"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    }
+                },
+                "summary": "What this daemon is",
+                "tags": [
+                    "meta"
+                ]
+            }
+        }
+    },
+    "openapi": "3.1.0",
+    "tags": [
+        {
+            "description": "What this daemon is.",
+            "name": "meta"
+        },
+        {
+            "description": "What is attached, and what it is doing.",
+            "name": "tuners"
+        },
+        {
+            "description": "Tuning, and the transport stream that comes of it.",
+            "name": "receiving"
+        },
+        {
+            "description": "The card slots. Served wherever this daemon listens.",
+            "name": "cards"
+        }
+    ]
+}

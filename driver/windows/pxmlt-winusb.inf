@@ -1,0 +1,61 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding the PLEX PX-MLT boards (PX-MLT5U, PX-MLT5PE,
+; PX-MLT8PE), the DigiBest ISDB6014 V2.0 and the e-Better DTV02A-5TS-P to the
+; in-box WinUSB driver.
+; Production distribution requires a signed catalog.
+;
+; PX-MLT8PE enumerates as two USB devices with different product IDs; both
+; halves are listed.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = pxmlt-winusb.cat
+DriverVer   = 09/05/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%MLT5UName%    = WinUSBInstall, USB\VID_0511&PID_084E
+%MLT5PEName%   = WinUSBInstall, USB\VID_0511&PID_024E
+%MLT8PE3Name%  = WinUSBInstall, USB\VID_0511&PID_0252
+%MLT8PE5Name%  = WinUSBInstall, USB\VID_0511&PID_0253
+%ISDB6014Name% = WinUSBInstall, USB\VID_0511&PID_0254
+%DTV02A5Name%  = WinUSBInstall, USB\VID_0511&PID_924E
+
+[DeviceList.NTarm64]
+%MLT5UName%    = WinUSBInstall, USB\VID_0511&PID_084E
+%MLT5PEName%   = WinUSBInstall, USB\VID_0511&PID_024E
+%MLT8PE3Name%  = WinUSBInstall, USB\VID_0511&PID_0252
+%MLT8PE5Name%  = WinUSBInstall, USB\VID_0511&PID_0253
+%ISDB6014Name% = WinUSBInstall, USB\VID_0511&PID_0254
+%DTV02A5Name%  = WinUSBInstall, USB\VID_0511&PID_924E
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{0A905EFD-5472-4962-A5A2-CECD9B863C5A}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "PLEX"
+MLT5UName        = "PLEX PX-MLT5U (WinUSB)"
+MLT5PEName       = "PLEX PX-MLT5PE (WinUSB)"
+MLT8PE3Name      = "PLEX PX-MLT8PE, 3TS half (WinUSB)"
+MLT8PE5Name      = "PLEX PX-MLT8PE, 5TS half (WinUSB)"
+ISDB6014Name     = "DigiBest ISDB6014 V2.0 (WinUSB)"
+DTV02A5Name      = "e-Better DTV02A-5TS-P (WinUSB)"

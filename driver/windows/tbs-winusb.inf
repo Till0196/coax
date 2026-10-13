@@ -1,0 +1,48 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding the TurboSight USB tuners (TBS 5520, TBS 5520SE,
+; TBS 5530) to the in-box WinUSB driver. Production distribution requires a
+; signed catalog.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = tbs-winusb.cat
+DriverVer   = 09/04/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%TBS5520Name%   = WinUSBInstall, USB\VID_734C&PID_5520
+%TBS5520SEName% = WinUSBInstall, USB\VID_734C&PID_5521
+%TBS5530Name%   = WinUSBInstall, USB\VID_734C&PID_5530
+
+[DeviceList.NTarm64]
+%TBS5520Name%   = WinUSBInstall, USB\VID_734C&PID_5520
+%TBS5520SEName% = WinUSBInstall, USB\VID_734C&PID_5521
+%TBS5530Name%   = WinUSBInstall, USB\VID_734C&PID_5530
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{78E4C0E0-A72B-40D0-B159-21CC692FB698}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "TurboSight"
+TBS5520Name      = "TBS 5520 (WinUSB)"
+TBS5520SEName    = "TBS 5520SE (WinUSB)"
+TBS5530Name      = "TBS 5530 (WinUSB)"

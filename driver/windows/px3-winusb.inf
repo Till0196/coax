@@ -1,0 +1,63 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding the PLEX ASV52xx boards (PX-S3U, PX-S3U2,
+; PX-W3U2, PX-W3U3, PX-W3U3 V2) to the in-box WinUSB driver. Production
+; distribution requires a signed catalog.
+;
+; A freshly plugged board runs the bridge's boot ROM and enumerates under
+; ASICEN's own identifier until coax uploads the firmware, so the two cold
+; identifiers need WinUSB as well.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = px3-winusb.cat
+DriverVer   = 09/05/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%S3UName%    = WinUSBInstall, USB\VID_0B06&PID_0001
+%S3U2Name%   = WinUSBInstall, USB\VID_0B06&PID_0003
+%W3U2Name%   = WinUSBInstall, USB\VID_0B06&PID_0004
+%W3U3Name%   = WinUSBInstall, USB\VID_0B06&PID_0005
+%W3U3V2Name% = WinUSBInstall, USB\VID_0B06&PID_0006
+%ColdName%   = WinUSBInstall, USB\VID_1738&PID_5211
+%ColdName%   = WinUSBInstall, USB\VID_1738&PID_5216
+
+[DeviceList.NTarm64]
+%S3UName%    = WinUSBInstall, USB\VID_0B06&PID_0001
+%S3U2Name%   = WinUSBInstall, USB\VID_0B06&PID_0003
+%W3U2Name%   = WinUSBInstall, USB\VID_0B06&PID_0004
+%W3U3Name%   = WinUSBInstall, USB\VID_0B06&PID_0005
+%W3U3V2Name% = WinUSBInstall, USB\VID_0B06&PID_0006
+%ColdName%   = WinUSBInstall, USB\VID_1738&PID_5211
+%ColdName%   = WinUSBInstall, USB\VID_1738&PID_5216
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{A33B60D3-49A1-4A29-A1BF-B2B29A0EC19E}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "PLEX"
+S3UName          = "PLEX PX-S3U (WinUSB)"
+S3U2Name         = "PLEX PX-S3U2 (WinUSB)"
+W3U2Name         = "PLEX PX-W3U2 (WinUSB)"
+W3U3Name         = "PLEX PX-W3U3 (WinUSB)"
+W3U3V2Name       = "PLEX PX-W3U3 V2 (WinUSB)"
+ColdName         = "PLEX ASV52xx board, pre-firmware (WinUSB)"

@@ -1,0 +1,43 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding the KEIAN KTV-FSUSB2 to the in-box WinUSB
+; driver. Production distribution requires a signed catalog.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = fsusb2-winusb.cat
+DriverVer   = 08/16/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%FSUSB2Name% = WinUSBInstall, USB\VID_0511&PID_0029
+%FSUSB2Name% = WinUSBInstall, USB\VID_0511&PID_003B
+
+[DeviceList.NTarm64]
+%FSUSB2Name% = WinUSBInstall, USB\VID_0511&PID_0029
+%FSUSB2Name% = WinUSBInstall, USB\VID_0511&PID_003B
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{7E4A1D93-2C86-4B5F-9A17-D3F0B62C48A5}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "KEIAN"
+FSUSB2Name       = "KEIAN KTV-FSUSB2 (WinUSB)"

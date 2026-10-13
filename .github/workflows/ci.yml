@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt reports these files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # The Windows and macOS halves of the USB backend never compile on a
+      # Linux runner, so vet them explicitly.
+      - name: Vet
+        run: |
+          for target in linux/amd64 linux/arm64 linux/386 linux/arm \
+                        windows/amd64 windows/arm64 windows/386 darwin/amd64 darwin/arm64; do
+            echo "== $target"
+            GOOS=${target%/*} GOARCH=${target#*/} go vet ./...
+          done
+
+      - name: Test
+        run: go test ./...
+
+      # usbfs's structs and ioctl numbers differ on a 32-bit kernel; the runner
+      # runs 386 binaries natively.
+      - name: Test as 32-bit
+        run: GOARCH=386 go test ./...
+
+      - name: Compile the per-target tests
+        run: |
+          for target in windows/amd64 windows/arm64 windows/386 darwin/amd64 darwin/arm64 linux/arm; do
+            echo "== $target"
+            GOOS=${target%/*} GOARCH=${target#*/} go test -c -o /dev/null ./internal/coaxd/usb/usbio/...
+          done
+
+      # A build that quietly lost a USB backend still links and runs, and only
+      # fails once a tuner is plugged in, so check that every board package's
+      # backend name reached the daemon.
+      - name: Build
+        run: |
+          backends=$(find internal/coaxd/usb/board -name '*.go' ! -name '*_test.go' \
+            -exec sed -nE 's/^\tName: +"([^"]+)",$/\1/p' {} + | sort -u)
+          if [ -z "$backends" ]; then
+            echo "no backend names found under internal/coaxd/usb/board" >&2
+            exit 1
+          fi
+          echo "backends:" $backends
+          for target in linux/amd64 linux/arm64 linux/386 linux/arm \
+                        windows/amd64 windows/arm64 windows/386 darwin/amd64 darwin/arm64; do
+            echo "== $target"
+            for cmd in coax fwextract; do
+              CGO_ENABLED=0 GOARM=7 GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null ./cmd/$cmd
+            done
+            CGO_ENABLED=0 GOARM=7 GOOS=${target%/*} GOARCH=${target#*/} go build -o coaxd.bin ./cmd/coaxd
+            for backend in $backends; do
+              if ! grep -qa -- "$backend" coaxd.bin; then
+                echo "the $backend backend is missing from coaxd for $target" >&2
+                exit 1
+              fi
+            done
+          done

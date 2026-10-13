@@ -1,0 +1,41 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding the Sony CECH-ZD1 J to the in-box WinUSB
+; driver. Production distribution requires a signed catalog.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = cech-zd1j-winusb.cat
+DriverVer   = 09/25/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%DeviceName% = WinUSBInstall, USB\VID_054C&PID_04B2
+
+[DeviceList.NTarm64]
+%DeviceName% = WinUSBInstall, USB\VID_054C&PID_04B2
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{B8F4B677-E19A-4BEB-A60C-C0A7AC2D0F6B}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "Sony"
+DeviceName       = "Sony CECH-ZD1 J (WinUSB)"

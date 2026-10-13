@@ -1,0 +1,60 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding the PLEX PX-W3U4 family (PX-W3U4, PX-Q3U4,
+; PX-W3PE4, PX-Q3PE4, PX-W3PE5, PX-Q3PE5) to the in-box WinUSB driver.
+; Production distribution requires a signed catalog.
+;
+; The Q3 boards enumerate as two USB devices; both carry the same product ID,
+; so one entry covers both halves.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = px4-winusb.cat
+DriverVer   = 09/05/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%W3U4Name%  = WinUSBInstall, USB\VID_0511&PID_083F
+%Q3U4Name%  = WinUSBInstall, USB\VID_0511&PID_084A
+%W3PE4Name% = WinUSBInstall, USB\VID_0511&PID_023F
+%Q3PE4Name% = WinUSBInstall, USB\VID_0511&PID_024A
+%W3PE5Name% = WinUSBInstall, USB\VID_0511&PID_073F
+%Q3PE5Name% = WinUSBInstall, USB\VID_0511&PID_074A
+
+[DeviceList.NTarm64]
+%W3U4Name%  = WinUSBInstall, USB\VID_0511&PID_083F
+%Q3U4Name%  = WinUSBInstall, USB\VID_0511&PID_084A
+%W3PE4Name% = WinUSBInstall, USB\VID_0511&PID_023F
+%Q3PE4Name% = WinUSBInstall, USB\VID_0511&PID_024A
+%W3PE5Name% = WinUSBInstall, USB\VID_0511&PID_073F
+%Q3PE5Name% = WinUSBInstall, USB\VID_0511&PID_074A
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{AC7B3065-1564-4887-B9E3-A5431C3D897D}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "PLEX"
+W3U4Name         = "PLEX PX-W3U4 (WinUSB)"
+Q3U4Name         = "PLEX PX-Q3U4 (WinUSB)"
+W3PE4Name        = "PLEX PX-W3PE4 (WinUSB)"
+Q3PE4Name        = "PLEX PX-Q3PE4 (WinUSB)"
+W3PE5Name        = "PLEX PX-W3PE5 (WinUSB)"
+Q3PE5Name        = "PLEX PX-Q3PE5 (WinUSB)"

@@ -1,0 +1,176 @@
+{
+  "codes": [
+    "invalid_parameter",
+    "unknown_tuner",
+    "tuner_busy",
+    "unsupported",
+    "tune_failed",
+    "no_lock",
+    "device_gone",
+    "no_card_reader",
+    "card_error",
+    "no_devices",
+    "no_firmware",
+    "no_access",
+    "internal"
+  ],
+  "reasons": [
+    "delivery_system",
+    "out_of_range",
+    "lnb_supply"
+  ],
+  "version": {
+    "version": "0.1.0",
+    "commit": "0123456789abcdef",
+    "started": "2026-08-19T09:41:00Z",
+    "arch": "arm64"
+  },
+  "board": {
+    "name": "example:ABC12345@1-2.1",
+    "naming": "serial+port",
+    "stable": true,
+    "backend": "example",
+    "description": "Example U2 (BR300 + DM100)",
+    "location": "001:006",
+    "serial": "ABC12345",
+    "port": "1-2.1",
+    "deliveries": [
+      "ISDBT",
+      "ISDBS"
+    ],
+    "open": true,
+    "probed": true,
+    "probe_error": "initialize Si2168: read required firmware /lib/firmware/dvb-demod-si2168-d60-01.fw: no such file or directory",
+    "tuners": [
+      {
+        "id": "example:ABC12345@1-2.1:0",
+        "index": 0,
+        "name": "TN100",
+        "deliveries": [
+          "ISDBS"
+        ],
+        "leased": false,
+        "locked": true,
+        "status": [
+          "SIGNAL",
+          "CARRIER",
+          "LOCK"
+        ],
+        "cnr": 18.5,
+        "strength": -71.4,
+        "quality": 0.75,
+        "dropped": 12
+      },
+      {
+        "id": "example:ABC12345@1-2.1:2",
+        "index": 2,
+        "name": "TN200",
+        "deliveries": [
+          "ISDBT"
+        ],
+        "leased": true,
+        "priority": 5,
+        "mode": "ISDB-T",
+        "settings": [
+          {
+            "name": "GAIN",
+            "value": "12 dB"
+          }
+        ],
+        "tuned": [
+          {
+            "name": "DELIVERY_SYSTEM",
+            "value": "ISDBT"
+          },
+          {
+            "name": "FREQUENCY",
+            "value": "551142857"
+          }
+        ],
+        "locked": true,
+        "status": [
+          "SIGNAL",
+          "CARRIER",
+          "LOCK"
+        ],
+        "cnr": 31.25,
+        "strength": -52.5,
+        "stream": {
+          "format": "ts",
+          "bytes": 18800000,
+          "packets": 100000,
+          "skipped": 0,
+          "sync_losses": 0,
+          "discontinuities": 3,
+          "nulls": 12000,
+          "errors": 1,
+          "scrambled": 400
+        }
+      }
+    ]
+  },
+  "tuneResult": {
+    "tuner": "example:ABC12345@1-2.1:2",
+    "backend": "example",
+    "locked": false,
+    "status": [
+      "SIGNAL"
+    ],
+    "cnr": 3.25,
+    "strength": -84.25,
+    "quality": 0.1,
+    "elapsed_ms": 5003,
+    "ignored": [
+      "SERVICE_ID",
+      "VIDEO_PID"
+    ]
+  },
+  "tuneResultRelative": {
+    "tuner": "chardev:example0:0",
+    "backend": "chardev",
+    "locked": true,
+    "status": [
+      "SIGNAL",
+      "CARRIER",
+      "LOCK"
+    ],
+    "relative_streams": 8,
+    "elapsed_ms": 412
+  },
+  "card": {
+    "id": "example:ABC12345@1-2.1",
+    "reader": "coax Example U2 00",
+    "backend": "example",
+    "board": "example:ABC12345@1-2.1",
+    "present": true
+  },
+  "cardSession": {
+    "atr": "3fbf13008131f0450a01ff8090001f",
+    "exchanges": [
+      {
+        "command": "902e0000",
+        "response": "0000000000009000",
+        "status": "9000"
+      }
+    ]
+  },
+  "cardRequest": {
+    "apdus": [
+      "902e0000",
+      "9030000000"
+    ]
+  },
+  "failure": {
+    "error": {
+      "code": "unsupported",
+      "message": "no tuner offers ISDBS",
+      "reason": "delivery_system"
+    },
+    "status": {
+      "tuner": "example:ABC12345@1-2.1:2",
+      "backend": "example",
+      "locked": false,
+      "elapsed_ms": 12
+    }
+  }
+}

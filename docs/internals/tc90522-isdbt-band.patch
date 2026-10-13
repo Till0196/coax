@@ -1,0 +1,24 @@
+diff --git a/drivers/media/dvb-frontends/tc90522.c b/drivers/media/dvb-frontends/tc90522.c
+index 9a5ffb5f7..c53c5f65e 100644
+--- a/drivers/media/dvb-frontends/tc90522.c
++++ b/drivers/media/dvb-frontends/tc90522.c
+@@ -757,8 +757,17 @@ static const struct dvb_frontend_ops tc90522_ops_ter = {
+ 	.delsys = { SYS_ISDBT },
+ 	.info = {
+ 		.name = "Toshiba TC90522 ISDB-T module",
+-		.frequency_min_hz = 470 * MHz,
+-		.frequency_max_hz = 770 * MHz,
++		/*
++		 * The demod never sees an RF frequency: set_frontend hands the
++		 * channel to the tuner and then only resets the demod. So this
++		 * range must not be narrower than the tuner's, or the DVB core
++		 * -- which intersects the two -- refuses bands the hardware can
++		 * receive. Japan broadcasts ISDB-T on VHF 1-12 (from 93 MHz)
++		 * and on cable at C13-C63, and the MxL301RF this demod is
++		 * paired with on the PT3 covers 93-803 MHz.
++		 */
++		.frequency_min_hz =  90 * MHz,
++		.frequency_max_hz = 806 * MHz,
+ 		.frequency_stepsize_hz = 142857,
+ 		.caps = FE_CAN_INVERSION_AUTO |
+ 			FE_CAN_FEC_1_2  | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |

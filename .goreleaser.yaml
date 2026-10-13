@@ -1,0 +1,224 @@
+version: 2
+
+project_name: coax
+
+before:
+  hooks:
+    - go test ./...
+
+# No target needs cgo, so every command cross-compiles from one runner.
+# Each command is built once for Linux and macOS and once for Windows, so the
+# Windows archive can carry the WinUSB INFs as well.
+builds:
+  - id: coaxd-linux
+    main: ./cmd/coaxd
+    binary: coaxd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch: [amd64, arm64, "386", arm]
+    goarm:
+      - "7"
+    flags:
+      - "-trimpath"
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.FullCommit}}
+  - id: coaxd-darwin
+    main: ./cmd/coaxd
+    binary: coaxd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch: [amd64, arm64]
+    goarm:
+      - "7"
+    flags:
+      - "-trimpath"
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.FullCommit}}
+  - id: coaxd-windows
+    main: ./cmd/coaxd
+    binary: coaxd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch: [amd64, arm64, "386"]
+    goarm:
+      - "7"
+    flags:
+      - "-trimpath"
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.FullCommit}}
+  - id: coax-linux
+    main: ./cmd/coax
+    binary: coax
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch: [amd64, arm64, "386", arm]
+    goarm:
+      - "7"
+    flags:
+      - "-trimpath"
+    ldflags:
+      - -s -w
+  - id: coax-darwin
+    main: ./cmd/coax
+    binary: coax
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch: [amd64, arm64]
+    goarm:
+      - "7"
+    flags:
+      - "-trimpath"
+    ldflags:
+      - -s -w
+  - id: coax-windows
+    main: ./cmd/coax
+    binary: coax
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch: [amd64, arm64, "386"]
+    goarm:
+      - "7"
+    flags:
+      - "-trimpath"
+    ldflags:
+      - -s -w
+  - id: fwextract-linux
+    main: ./cmd/fwextract
+    binary: fwextract
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch: [amd64, arm64, "386", arm]
+    goarm:
+      - "7"
+    flags:
+      - "-trimpath"
+    ldflags:
+      - -s -w
+  - id: fwextract-darwin
+    main: ./cmd/fwextract
+    binary: fwextract
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch: [amd64, arm64]
+    goarm:
+      - "7"
+    flags:
+      - "-trimpath"
+    ldflags:
+      - -s -w
+  - id: fwextract-windows
+    main: ./cmd/fwextract
+    binary: fwextract
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch: [amd64, arm64, "386"]
+    goarm:
+      - "7"
+    flags:
+      - "-trimpath"
+    ldflags:
+      - -s -w
+
+archives:
+  - id: unix
+    ids: [coaxd-linux, coaxd-darwin, coax-linux, coax-darwin, fwextract-linux, fwextract-darwin]
+    name_template: &archive_name >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    formats: [tar.gz]
+    files:
+      - COPYING
+      - LICENSE-APACHE
+      - NOTICE
+      - README.md
+  # The WinUSB INFs and the scripts that install them travel with the Windows build.
+  - id: windows
+    ids: [coaxd-windows, coax-windows, fwextract-windows]
+    name_template: *archive_name
+    formats: [zip]
+    files:
+      - COPYING
+      - LICENSE-APACHE
+      - NOTICE
+      - README.md
+      - driver/windows/*
+
+nfpms:
+  - file_name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
+    ids:
+      - coaxd-linux
+      - coax-linux
+      - fwextract-linux
+    maintainer: Till0196
+    description: Tuner daemon and client that tune and stream over HTTP
+    license: "Apache-2.0 OR GPL-2.0-or-later"
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+    section: video
+    contents:
+      - src: ./NOTICE
+        dst: /usr/share/doc/coax/copyright
+        file_info:
+          mode: 0644
+      - src: ./COPYING
+        dst: /usr/share/doc/coax/COPYING
+        file_info:
+          mode: 0644
+      - src: ./LICENSE-APACHE
+        dst: /usr/share/doc/coax/LICENSE-APACHE
+        file_info:
+          mode: 0644
+
+dockers_v2:
+  - images:
+      - ghcr.io/till0196/coax
+    tags:
+      - "{{ .Version }}"
+      - latest
+    ids:
+      - coaxd-linux
+      - coax-linux
+      - fwextract-linux
+    platforms:
+      - linux/amd64
+      - linux/arm64
+      - linux/386
+      - linux/arm/v7
+    labels:
+      org.opencontainers.image.source: https://github.com/Till0196/coax
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: Apache-2.0 OR GPL-2.0-or-later
+
+checksum:
+  name_template: "checksums.sha256"
+
+changelog:
+  disable: true
+
+sboms:
+  - artifacts: archive

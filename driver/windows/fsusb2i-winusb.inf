@@ -1,0 +1,45 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding the KEIAN KTV-FSMINI and the KTV-FSUSB2/V3 boards
+; from serial K1212 onwards to the in-box WinUSB driver. Both enumerate as the
+; same device. Production distribution requires a signed catalog.
+;
+; The earlier KTV-FSUSB2 boards are a different design and are covered by
+; fsusb2-winusb.inf instead.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = fsusb2i-winusb.cat
+DriverVer   = 08/16/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%FSUSB2iName% = WinUSBInstall, USB\VID_0511&PID_0046
+
+[DeviceList.NTarm64]
+%FSUSB2iName% = WinUSBInstall, USB\VID_0511&PID_0046
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{5F8A0A38-2114-420F-AC93-D6E4B5334C87}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "KEIAN"
+FSUSB2iName      = "KEIAN KTV-FSUSB2i / FSMINI (WinUSB)"

@@ -1,0 +1,47 @@
+; Copyright 2026 Till0196
+; SPDX-License-Identifier: Apache-2.0
+;
+; Development INF for binding the Siano Rio ISDB-T sticks (MyGica S270,
+; PLEX PX-S1UD) to the in-box WinUSB driver. Production distribution
+; requires a signed catalog.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = USBDevice
+ClassGuid   = {88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+Provider    = %ProviderName%
+CatalogFile = s270-winusb.cat
+DriverVer   = 08/16/2026,1.0.0.0
+
+[Manufacturer]
+%ManufacturerName% = DeviceList,NTamd64,NTarm64
+
+[DeviceList.NTamd64]
+%S270Name%  = WinUSBInstall, USB\VID_187F&PID_0600
+%S270Name%  = WinUSBInstall, USB\VID_187F&PID_0601
+%S1UDName%  = WinUSBInstall, USB\VID_3275&PID_0080
+
+[DeviceList.NTarm64]
+%S270Name%  = WinUSBInstall, USB\VID_187F&PID_0600
+%S270Name%  = WinUSBInstall, USB\VID_187F&PID_0601
+%S1UDName%  = WinUSBInstall, USB\VID_3275&PID_0080
+
+[WinUSBInstall]
+Include = winusb.inf
+Needs   = WINUSB.NT
+
+[WinUSBInstall.Services]
+Include = winusb.inf
+Needs   = WINUSB.NT.Services
+
+[WinUSBInstall.HW]
+AddReg = DeviceInterfaceGUID
+
+[DeviceInterfaceGUID]
+HKR,,DeviceInterfaceGUIDs,0x10000,"{2B5C8E41-9D77-4A3E-B168-5F0C7A94D2E6}"
+
+[Strings]
+ProviderName     = "coax"
+ManufacturerName = "Siano"
+S270Name         = "MyGica S270 (WinUSB)"
+S1UDName         = "PLEX PX-S1UD (WinUSB)"
