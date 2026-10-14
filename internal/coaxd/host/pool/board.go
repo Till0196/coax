@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // board is one physical board: the shared device.Board value and the

@@ -19,7 +19,7 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/usb/bridge/em287x"
 	"github.com/Till0196/coax/internal/coaxd/usb/tsdemux"
 	"github.com/Till0196/coax/internal/coaxd/usb/usbdev"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // Backend registers the board with the parent registry.

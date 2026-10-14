@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // InitTerrestrial is the register sequence a terrestrial core needs at power-up

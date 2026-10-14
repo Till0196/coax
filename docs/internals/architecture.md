@@ -6,7 +6,8 @@
 
 ## 公開面
 
-外部から使えるのは`cmd/`のコマンドだけで、`coaxd`の実装はすべて`internal/coaxd/`にあります。
+外部から使えるのは`cmd/`のコマンドだけで、`coaxd`の実装は`internal/coaxd/`にあります。
+チューナーに限らず使える部分は、[下記](#pkgに置いているもの)のとおり`pkg/`に置いています。
 クライアントとのやり取りをHTTPだけにするために、意図的にこの構成にしています。
 Goのパッケージを共有しないので、デーモンとクライアントのどちらか一方だけを入れ替えられ、Go以外で書かれたクライアントもGoのものと同じ扱いになります。
 
@@ -23,22 +24,32 @@ Goのパッケージを共有しないので、デーモンとクライアント
 | `host/*` | デーモンそのもの。所有権のプール（`pool`）、HTTPハンドラー（`server`）、API型とOpenAPI（`hostapi`）、ソケットとアイドル終了（`daemon`）、安定ID（`tunerid`）、Linux DVBとWindows BDAの取り込み（`native`）、Windowsの通知領域（`tray`）|
 | `device` | チューナーのドライバーが実装するBoard、Tuner、Streamのインタフェースと、デバイスや電源の参照カウント。ファームウェアの探索もここ |
 | `receiver` | OSやデバイスのAPIに依存しない、共通の受信インタフェース |
-| `i2c` | バスとその先のICをつなぐインタフェース。復調器のゲート越しのアクセスと、マスク付き書き込みの共通処理 |
 | `tuning` | 伝送方式名の正規化とチャンネル定義プロパティの解釈。LNB給電、LNBf、GAIN、DiSEqCもここ |
 | `demod/*` | 復調IC。`avl6882`、`cxd2856er`、`cxd2857er`、`cxd2878`、`m88rs6060`、`mb86a20s`、`mxl58x`、`si2168`、`si2183`、`sony`（Sony系で共通のコア）、`stid135`、`stv091x`、`tas2101`、`tc90522` |
 | `tuner/*` | チューナーIC。`av201x`、`cxd2858er`、`fc0012`、`mxl136`、`mxl301rf`、`nm120`、`qm1d1b0004`、`qm1d1c0042`、`r848`、`r850`、`rda5816`、`rt710`、`si2157`（Si2141とSi2157を1つのドライバーで扱う）、`stv6120`、`tda18211`、`tda20142`、`tda6651` |
-| `smartcard/*` | 内蔵カードリーダーのIC（`asie5606`）と、ISO/IEC 7816-3のT=1（`iso7816`）。ICはバイト列をそのまま通すだけなので、ブロックの組み立て、LRC、分割された応答の組み立てもここで行う |
+| `smartcard/*` | 内蔵カードリーダーのIC（`asie5606`）。ICはバイト列をそのまま通すだけなので、T=1のブロックは`pkg/iso7816`が組む |
 | `usb/*` | 対応USBチューナーのドライバー一式（[下記](#usbチューナーの層)）|
 | `dvb` | Linux DVB APIでの列挙、選局、フロントエンド状態取得（[dvb.md](../boards/dvb.md)）|
 | `chardev` | px4_drv、pt3ドライバー、pt1_drvのキャラクタデバイス（ptx ioctl）での列挙、選局、TSの読み出し |
 | `pcie/*` | Windowsでボードを直接制御する。`pt3`、`pt1`は`windriver`経由、`dd`、`tbs`は`bda`経由 |
 | `pcie/windriver` | Jungo WinDriverのカーネルサービスをIOCTLで直接呼ぶ層。ユーザーモードのDLL（`wdapi1200.dll`）は読み込みません（[理由](../boards/earthsoft-windows.md#pt1--pt2固有の事情)）|
-| `bda/*` | Windows BDAの受信一式。`filters`が列挙、`graph`がフィルターグラフとTune Request、`sink`がTSを受け取る自前のレンダラー、`mode`が復調モードの切り替え、`tuning`がチャンネル記述、`cards`がボード単位の占有管理、`vendors/*`がベンダー固有の制御、`comutil`がCOMの補助 |
-| `win32` | DirectShow／COMバインディング（自前）|
-| `winscard`、`pcscd` | WinSCard/PC-SC互換API層と、pcsc-liteのクライアントプロトコル実装（[winscard.md](../reference/winscard.md)）|
-| `mpegts`、`tlv` | MPEG-2 TSとMMT/TLVの同期検査 |
+| `bda/*` | Windows BDAの受信一式。`filters`が列挙、`graph`がフィルターグラフとTune Request、`sink`がTSを受け取る自前のレンダラー、`mode`が復調モードの切り替え、`tuning`がチャンネル記述、`cards`がボード単位の占有管理、`vendors/*`がベンダー固有の制御 |
 | `fwextract` | ドライバーパッケージからのファームウェア抽出 |
 | `build` | バージョンとコミットの埋め込み |
+
+## pkgに置いているもの
+
+チューナーに限らず使えるパッケージは`pkg/`に置いています。
+
+| パッケージ | 内容 |
+| --- | --- |
+| `pkg/usbio` | control、bulk、isochronousの転送。`usbfs`（Linux）、`iokit`（macOS）、`winusb`（Windows）と、外から受け取ったデバイスを扱う`injected` |
+| `pkg/i2c` | バスとその先のICをつなぐインタフェース。復調器のゲート越しのアクセスと、マスク付き書き込みの共通処理 |
+| `pkg/iso7816` | ISO/IEC 7816-3のT=1。ブロックの組み立て、LRC、分割された応答の組み立て |
+| `pkg/winscard`、`pkg/pcscd` | WinSCard/PC-SC互換API層と、pcsc-liteのクライアントプロトコル実装（[winscard.md](../reference/winscard.md)）。カードを提供する`usbcard`、`daemoncard`は`internal/winscard/`にあります |
+| `pkg/win32` | DirectShow／COMバインディング（自前）と、COMの補助（`comutil`）|
+| `pkg/fr30` | Fujitsu FR30のアセンブラーと、Goで動かすシミュレーター（`sim`）|
+| `pkg/mpegts/analyse`、`pkg/mmttlv/analyse` | MPEG-2 TSとMMT/TLVの同期検査 |
 
 ## チューナーのインタフェースと受信IC
 
@@ -53,7 +64,7 @@ USBブリッジの先にあるのか、PCIeボードのFPGAのI2Cブロックの
 
 `usb`配下は、同じICを載せた製品どうしでドライバーを再利用できるよう層に分けています。
 
-- `usb/usbio`：control、bulk、isochronousの転送
+- `pkg/usbio`：control、bulk、isochronousの転送
 - `usb/usbdev`：USB固有の登録情報だけを持つ`Backend`。どのベンダーID・プロダクトIDで見えるかと、開かずに分かるチューナー構成を宣言します
 - `usb/boardkit`：`device`のインタフェースのうち、製品によらない部分（チューナーの排他的な確保、参照カウント、閉じるときのストリーム停止、読み取りタイムアウトの変換）を担当する層。製品側は選局、状態の取得、ストリームの開始と停止だけを実装します
 - `usb/tsdemux`：1本のエンドポイントに多重化された複数チューナーのTSを分ける

@@ -5,7 +5,7 @@
 
 package graph
 
-import "github.com/Till0196/coax/internal/coaxd/win32"
+import "github.com/Till0196/coax/pkg/win32"
 
 // The classes a BDA graph is assembled from. KS categories are in the filters
 // package.

@@ -11,7 +11,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
 	"github.com/Till0196/coax/internal/coaxd/demod/stid135"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // The vendor's S2X cards are built round an STMicroelectronics STiD135: eight

@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Variant selects which part this is; the two differ only in their tables.

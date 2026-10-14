@@ -10,8 +10,8 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
 	"github.com/Till0196/coax/internal/coaxd/demod/tas2101"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/tuner/av201x"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // The vendor's older satellite cards carry a Tmax TAS2101 with an Airoha

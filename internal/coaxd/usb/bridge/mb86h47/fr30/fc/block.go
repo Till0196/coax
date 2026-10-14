@@ -3,7 +3,7 @@
 
 package fc
 
-import "github.com/Till0196/coax/internal/coaxd/usb/bridge/mb86h47/fr30"
+import "github.com/Till0196/coax/pkg/fr30"
 
 type stmtKind uint8
 

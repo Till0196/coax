@@ -11,8 +11,8 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
 	"github.com/Till0196/coax/internal/coaxd/demod/stv091x"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/tuner/stv6120"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // The vendor's 6903, 6905 and 6908 are built round shared STMicroelectronics

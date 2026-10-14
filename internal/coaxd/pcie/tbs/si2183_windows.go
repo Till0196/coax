@@ -11,10 +11,10 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/demod/si2183"
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/tuner/av201x"
 	"github.com/Till0196/coax/internal/coaxd/tuner/rda5816"
 	"github.com/Till0196/coax/internal/coaxd/tuner/si2157"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // The third chip these cards are built around is a Silicon Labs Si2183: one

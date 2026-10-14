@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 func TestLookupAcceptsAliasesAndPrefix(t *testing.T) {

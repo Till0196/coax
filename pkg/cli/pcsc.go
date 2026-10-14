@@ -20,11 +20,11 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/idle"
-	"github.com/Till0196/coax/internal/pcscd"
 	"github.com/Till0196/coax/internal/sockdir"
-	"github.com/Till0196/coax/internal/winscard"
 	"github.com/Till0196/coax/internal/winscard/daemoncard"
 	"github.com/Till0196/coax/pkg/host"
+	"github.com/Till0196/coax/pkg/pcscd"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // runPCSC serves the socket a PC/SC client library connects to, backed by a

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/smartcard/iso7816"
+	"github.com/Till0196/coax/pkg/iso7816"
 )
 
 // The CECH-ZD1 J's card slot hangs off a smart-card UART in the MB86H47A at

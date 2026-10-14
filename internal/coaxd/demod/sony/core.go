@@ -6,7 +6,7 @@ package sony
 import (
 	"fmt"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Target selects which of the chip's four I2C addresses a transfer goes to.

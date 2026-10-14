@@ -32,12 +32,12 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/demod/stv091x"
 	"github.com/Till0196/coax/internal/coaxd/demod/tas2101"
 	coaxdevice "github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/tuner/av201x"
 	"github.com/Till0196/coax/internal/coaxd/tuner/rda5816"
 	"github.com/Till0196/coax/internal/coaxd/tuner/si2157"
 	"github.com/Till0196/coax/internal/coaxd/tuner/stv6120"
 	"github.com/Till0196/coax/internal/coaxd/tuning"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Backend is the name these tuners are listed under.

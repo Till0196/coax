@@ -6,7 +6,7 @@ package fc
 import (
 	"fmt"
 
-	"github.com/Till0196/coax/internal/coaxd/usb/bridge/mb86h47/fr30"
+	"github.com/Till0196/coax/pkg/fr30"
 )
 
 type nodeKind uint8

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 const registerCount = 0x10

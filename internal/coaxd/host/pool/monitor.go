@@ -8,9 +8,9 @@ import (
 	"sync"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/mpegts"
-	"github.com/Till0196/coax/internal/coaxd/tlv"
 	"github.com/Till0196/coax/internal/coaxd/tuning"
+	tlv "github.com/Till0196/coax/pkg/mmttlv/analyse"
+	mpegts "github.com/Till0196/coax/pkg/mpegts/analyse"
 )
 
 // monitored is a tuner's stream with an analyser watching what goes through it.

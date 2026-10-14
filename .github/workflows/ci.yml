@@ -59,7 +59,7 @@ jobs:
         run: |
           for target in windows/amd64 windows/arm64 windows/386 darwin/amd64 darwin/arm64 linux/arm; do
             echo "== $target"
-            GOOS=${target%/*} GOARCH=${target#*/} go test -c -o /dev/null ./internal/coaxd/usb/usbio/...
+            GOOS=${target%/*} GOARCH=${target#*/} go test -c -o /dev/null ./pkg/usbio/...
           done
 
       # A build that quietly lost a USB backend still links and runs, and only

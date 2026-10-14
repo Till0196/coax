@@ -19,7 +19,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/device"
 	"github.com/Till0196/coax/internal/coaxd/tuning"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // Tuner is the hardware half of one tuner of a board. The kit calls these under

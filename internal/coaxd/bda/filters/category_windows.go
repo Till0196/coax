@@ -5,7 +5,7 @@
 
 package filters
 
-import "github.com/Till0196/coax/internal/coaxd/win32"
+import "github.com/Till0196/coax/pkg/win32"
 
 var (
 	// CategoryNetworkTuner is the KS category every BDA tuner registers in.

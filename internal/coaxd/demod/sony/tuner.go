@@ -3,7 +3,7 @@
 
 package sony
 
-import "github.com/Till0196/coax/internal/coaxd/i2c"
+import "github.com/Till0196/coax/pkg/i2c"
 
 // TunerWriter reaches the tuner, a real I2C device at its own address rather
 // than one of the demodulator's four bank-selected ones -- whether it is a

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // address is the MxL136's I2C slave address on the tuner bus.

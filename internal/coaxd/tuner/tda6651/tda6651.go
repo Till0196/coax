@@ -14,7 +14,7 @@ package tda6651
 import (
 	"fmt"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Tuner is one TDA6651 as this board wires it.

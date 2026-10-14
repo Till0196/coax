@@ -6,9 +6,9 @@ package px3
 import (
 	"fmt"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/tuner/qm1d1b0004"
 	"github.com/Till0196/coax/internal/coaxd/tuning"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // The satellite tuner on the older boards is a QM1D1B0004, the same chip the

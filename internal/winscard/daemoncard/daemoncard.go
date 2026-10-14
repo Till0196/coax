@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Till0196/coax/internal/winscard"
 	"github.com/Till0196/coax/pkg/host"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // Provider is the readers one daemon has.

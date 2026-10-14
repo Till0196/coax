@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // fakeRegistry stands in for the board registry, so the pool can run without

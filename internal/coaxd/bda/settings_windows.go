@@ -6,7 +6,7 @@ package bda
 import (
 	"strconv"
 
-	"github.com/Till0196/coax/internal/coaxd/win32/directshow"
+	"github.com/Till0196/coax/pkg/win32/directshow"
 )
 
 // Settings is what the driver says about how the signal is being demodulated.

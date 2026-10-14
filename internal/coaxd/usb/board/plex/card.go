@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/smartcard/iso7816"
 	"github.com/Till0196/coax/internal/coaxd/usb/boardkit"
+	"github.com/Till0196/coax/pkg/iso7816"
 )
 
 // cardSlot is the enclosure's smart card reader. There is one slot however

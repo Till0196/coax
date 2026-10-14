@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // Commands carried in the frame header, as command<<8 | mailbox is not the

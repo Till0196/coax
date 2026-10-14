@@ -52,7 +52,7 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/usb/board/tbs5530"
 	"github.com/Till0196/coax/internal/coaxd/usb/board/us3pout"
 	"github.com/Till0196/coax/internal/coaxd/usb/usbdev"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // backends lists every supported board. Add one line per new board package.

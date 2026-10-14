@@ -19,13 +19,13 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/demod/cxd2856er"
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/tuner/cxd2858er"
 	"github.com/Till0196/coax/internal/coaxd/tuning"
 	"github.com/Till0196/coax/internal/coaxd/usb/board/plex"
 	"github.com/Till0196/coax/internal/coaxd/usb/tsdemux"
 	"github.com/Till0196/coax/internal/coaxd/usb/usbdev"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/i2c"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // Backend registers the board with the parent registry.

@@ -22,7 +22,6 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/demod/tc90522"
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/trace"
 	"github.com/Till0196/coax/internal/coaxd/tuner/fc0012"
 	"github.com/Till0196/coax/internal/coaxd/tuner/nm120"
@@ -31,7 +30,8 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/usb/boardkit"
 	"github.com/Till0196/coax/internal/coaxd/usb/bridge/asv5211"
 	"github.com/Till0196/coax/internal/coaxd/usb/usbdev"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/i2c"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // Backend registers the board with the parent registry.

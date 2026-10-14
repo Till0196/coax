@@ -5,7 +5,7 @@
 
 package tbs
 
-import "github.com/Till0196/coax/internal/coaxd/win32"
+import "github.com/Till0196/coax/pkg/win32"
 
 // TBS's private interface on a BDA tuner.
 //

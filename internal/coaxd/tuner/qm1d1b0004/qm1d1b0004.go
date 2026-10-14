@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Config is what the board, rather than the chip, decides. Both boards this

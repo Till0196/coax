@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Demod is a CXD2857ER reached over an I2C bus. Not safe for concurrent use: a

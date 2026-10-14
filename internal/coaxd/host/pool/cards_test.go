@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Till0196/coax/internal/winscard"
 	"github.com/Till0196/coax/internal/winscard/usbcard"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // TestCardAndTunersShareOneHandle is what the whole seam exists for: on a

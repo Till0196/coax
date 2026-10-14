@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/i2c"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // Command codes carried in the frame header.

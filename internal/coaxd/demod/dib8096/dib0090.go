@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // tunerAddress is DEFAULT_DIB0090_I2C_ADDRESS, 0x60, in 8-bit form.

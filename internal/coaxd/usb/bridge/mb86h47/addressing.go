@@ -7,8 +7,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/Till0196/coax/internal/coaxd/usb/bridge/mb86h47/fr30"
 	. "github.com/Till0196/coax/internal/coaxd/usb/bridge/mb86h47/fr30/fc"
+	"github.com/Till0196/coax/pkg/fr30"
 )
 
 // The memory request reaches 24-bit addresses at power-up; codec core 0 and

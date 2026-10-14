@@ -27,10 +27,10 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/host/server"
 	"github.com/Till0196/coax/internal/coaxd/host/tray"
 	"github.com/Till0196/coax/internal/coaxd/usb"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio/injected"
 	"github.com/Till0196/coax/internal/idle"
-	"github.com/Till0196/coax/internal/winscard"
 	"github.com/Till0196/coax/internal/winscard/usbcard"
+	"github.com/Till0196/coax/pkg/usbio/injected"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // Options settle how a daemon runs.
@@ -49,7 +49,7 @@ type Options struct {
 	// It is Android's way in: an application there may not read /dev/bus/usb, so
 	// the platform asks the person for permission and hands back an open
 	// descriptor. What arrives is a usbfs node like any other. See
-	// internal/coaxd/usb/usbio/injected.
+	// pkg/usbio/injected.
 	USBSocket string
 
 	// ChardevRoot is where the px4_drv and pt3 character devices are, empty for

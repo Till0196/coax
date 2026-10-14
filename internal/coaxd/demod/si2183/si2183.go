@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/tuning"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // defaultAddress is where an Si2183 answers unless the board moved it with the

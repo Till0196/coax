@@ -10,7 +10,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/demod/m88rs6060"
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Some of these cards carry two demodulators per tuner: a Sony part for the

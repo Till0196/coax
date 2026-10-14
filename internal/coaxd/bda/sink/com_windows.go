@@ -9,7 +9,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
-	"github.com/Till0196/coax/internal/coaxd/win32"
+	"github.com/Till0196/coax/pkg/win32"
 )
 
 // The plumbing a COM server written in Go needs: turning callback addresses back

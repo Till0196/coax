@@ -16,7 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Tuner is an NM120 reached through the TC90522 demodulator core in front of

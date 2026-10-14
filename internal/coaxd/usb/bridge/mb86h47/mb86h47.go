@@ -28,7 +28,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/usb/bridge/mb86h47/regs"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // Device is the subset of usbio.Transport the bridge needs.

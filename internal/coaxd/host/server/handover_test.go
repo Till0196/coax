@@ -18,7 +18,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/device"
 	"github.com/Till0196/coax/internal/coaxd/host/pool"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // slowBoard is one tuner whose handle takes a moment to close, as real hardware

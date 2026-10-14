@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Which member of the family is fitted is read from the chip rather than declared by the

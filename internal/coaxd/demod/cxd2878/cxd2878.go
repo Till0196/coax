@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Demod is one of these chips reached over an I2C bus. It is not safe for

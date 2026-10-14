@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // slowBoard is a board whose tuner takes a moment to let go, as real hardware

@@ -22,7 +22,7 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/usb/boardkit"
 	"github.com/Till0196/coax/internal/coaxd/usb/bridge/it930x"
 	"github.com/Till0196/coax/internal/coaxd/usb/tsdemux"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // firmwareFile is the IT930x blob every board in this family needs.

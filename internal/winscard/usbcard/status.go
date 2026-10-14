@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/Till0196/coax/internal/winscard"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // GetStatusChange waits for a card to be inserted or removed, or for the set

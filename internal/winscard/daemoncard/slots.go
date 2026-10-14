@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Till0196/coax/internal/pcscd"
 	"github.com/Till0196/coax/pkg/host"
+	"github.com/Till0196/coax/pkg/pcscd"
 )
 
 // Slots is the reader table's view of a daemon's slots.

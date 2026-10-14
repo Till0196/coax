@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Till0196/coax/internal/coaxd/win32"
+	"github.com/Till0196/coax/pkg/win32"
 )
 
 // Tuner names a card's tuner to these packages. Both fields are needed: the path

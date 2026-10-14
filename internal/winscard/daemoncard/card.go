@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Till0196/coax/internal/winscard"
 	"github.com/Till0196/coax/pkg/host"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // card is one open card at the daemon, with the HTTP connection that owns it.

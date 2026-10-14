@@ -11,7 +11,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/demod/mxl58x"
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // The 6909 is the odd card of this vendor's satellite range: one MaxLinear

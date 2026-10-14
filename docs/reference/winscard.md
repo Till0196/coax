@@ -9,15 +9,15 @@
 
 | 場所 | 役割 | 状態 |
 | --- | --- | --- |
-| `internal/winscard` | WinSCard APIそのもの。ハンドル、列挙順、振り分け、キャンセル、ステータスコード | 実装済み |
+| `pkg/winscard` | WinSCard APIそのもの。ハンドル、列挙順、振り分け、キャンセル、ステータスコード | 実装済み |
 | `internal/winscard/usbcard` | 内蔵リーダーのプロバイダ。リーダー名、デバイスを開いておく期間、共有とトランザクション、T=1のセッション | 実装済み |
-| `internal/winscard/native` | Windowsのリソースマネージャーへ転送するプロバイダ（System32の`WinSCard.dll`を絶対パスで読み込む）| 実装済み、実機では未確認 |
+| `pkg/winscard/native` | Windowsのリソースマネージャーへ転送するプロバイダ（System32の`WinSCard.dll`を絶対パスで読み込む）| 実装済み、実機では未確認 |
 | `internal/winscard/daemoncard` | 別のプロセスや別の機械の`coaxd`へHTTPで転送するプロバイダ | 実装済み |
-| `internal/pcscd` | pcsc-liteのクライアントプロトコルを実装したサーバー | 実装済み、libpcsclite 2.3.3で確認 |
-| `cmd/coax`の`pcsc` | `internal/pcscd`を待ち受けさせるコマンド。ソケットはクライアント側が作る | 実装済み |
+| `pkg/pcscd` | pcsc-liteのクライアントプロトコルを実装したサーバー | 実装済み、libpcsclite 2.3.3で確認 |
+| `cmd/coax`の`pcsc` | `pkg/pcscd`を待ち受けさせるコマンド。ソケットはクライアント側が作る | 実装済み |
 | `WinSCard.dll`互換のDLL | Windowsのアプリケーションに読み込ませるDLL | 実装済み。`coaxd`のHTTPのカードAPIに直接接続する |
 
-`internal/winscard`は、プロバイダによらない共通の処理を持ちます。
+`pkg/winscard`は、プロバイダによらない共通の処理を持ちます。
 ハンドルの管理（`ContextHandle`と`CardHandle`）、列挙順、リーダー名の重複の除去、リーダー名によるプロバイダへの振り分け、キャンセル、`SCardGetStatusChange`の分割と合流、`SCARD_S_SUCCESS`から`SCARD_W_*`までのステータスコードです。
 呼び出し規約とバッファの受け渡しは持ちません。
 それらはバインディングが担当します。
@@ -81,7 +81,7 @@ pcsc-liteはスコープを参照しないので、拒否する理由があり�
 変換が必要なのは、`SCARD_*`の値を外部に返す箇所だけです。
 Windowsの`WinSCard.dll`として提供するときは、この層の値をそのまま使えるので変換は不要です。
 pcsc-liteのクライアントと通信するときは変換が必要です。
-値を返しているのは`internal/pcscd`で、変換もここで行います（状態をビットフラグにする、`SCARD_PROTOCOL_T1`を`0x0002`として書く、など）。
+値を返しているのは`pkg/pcscd`で、変換もここで行います（状態をビットフラグにする、`SCARD_PROTOCOL_T1`を`0x0002`として書く、など）。
 
 ## 内蔵リーダーのプロバイダの動作
 
@@ -111,7 +111,7 @@ T=1のブロックをホスト側で組むカードインタフェースは任�
 
 ## T=1のブロックを組む場所
 
-どの経路でも、T=1のブロックは`internal/coaxd/smartcard/iso7816`が組みます。
+どの経路でも、T=1のブロックは`pkg/iso7816`が組みます。
 NAD、PCB（送信の通し番号）、長さ、APDU、LRCはすべてホスト側で作ります。
 「カードインタフェース」を持つデバイスでも、CCIDリーダーのようにAPDUを渡すだけで済むものはありません。
 
@@ -125,7 +125,7 @@ ATRのTA1から通信速度を、TA3／TB3／TC3からブロックサイズ、�
 ブロックサイズの交渉と再同期の順序はTA1の通信速度で決まり、38400なら交渉が先、それ以外なら再同期が先です。
 順序を逆にすると、どちらかの場合で失敗します。
 
-## pcsc-liteのクライアントプロトコル（`internal/pcscd`）
+## pcsc-liteのクライアントプロトコル（`pkg/pcscd`）
 
 ### バージョンと構造体
 
@@ -159,11 +159,11 @@ ATRのTA1から通信速度を、TA3／TB3／TC3からブロックサイズ、�
 
 ## `fakecardd`での動作確認
 
-`internal/pcscd/testdata/fakecardd`は、テスト用のスロットを1つ提供するだけのデーモンです。
+`pkg/pcscd/testdata/fakecardd`は、テスト用のスロットを1つ提供するだけのデーモンです。
 実機なしで、`libpcsclite`との動作を確認できます。
 
 ```sh
-CGO_ENABLED=0 go build -o fakecardd ./internal/pcscd/testdata/fakecardd
+CGO_ENABLED=0 go build -o fakecardd ./pkg/pcscd/testdata/fakecardd
 docker run -d --name pcsctest debian:stable-slim sleep 3600
 docker cp fakecardd pcsctest:/usr/local/bin/
 docker exec pcsctest apt-get update

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Till0196/coax/internal/coaxd/usb/bridge/mb86h47/fr30/sim"
+	"github.com/Till0196/coax/pkg/fr30/sim"
 )
 
 // i2cDevice is a device on the I2C bus: 16-bit registers, numbered with two

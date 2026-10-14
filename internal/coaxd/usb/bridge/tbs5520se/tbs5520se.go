@@ -16,9 +16,9 @@ package tbs5520se
 import (
 	"fmt"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/usb/bridge/tbs"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/i2c"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // Bridge is an opened TBS 5520SE. It implements i2c.Bus.

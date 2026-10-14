@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Till0196/coax/internal/winscard"
 	"github.com/Till0196/coax/internal/winscard/daemoncard"
 	"github.com/Till0196/coax/pkg/host"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // daemon answers the card endpoints the way coaxd does, holding a card against

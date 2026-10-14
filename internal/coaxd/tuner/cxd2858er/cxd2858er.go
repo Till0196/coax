@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Delivery systems are the sony package's, shared with the CXD2856ER this tuner

@@ -24,7 +24,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Address is the DiB8000's I2C address in 8-bit form, Linux's

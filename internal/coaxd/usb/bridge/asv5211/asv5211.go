@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/trace"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/i2c"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // transport is *usbio.Transport, as an interface so the command layer can be

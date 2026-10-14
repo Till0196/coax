@@ -7,7 +7,7 @@ import (
 	"encoding/binary"
 	"sync"
 
-	"github.com/Till0196/coax/internal/winscard"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // MaxInput is the longest command APDU one of these readers accepts. The T=1

@@ -21,8 +21,8 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/device"
 	"github.com/Till0196/coax/internal/coaxd/host/hostapi"
 	"github.com/Till0196/coax/internal/coaxd/host/pool"
-	"github.com/Till0196/coax/internal/coaxd/mpegts"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	mpegts "github.com/Till0196/coax/pkg/mpegts/analyse"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // The fakes below stand in for a board, so the server can be exercised without

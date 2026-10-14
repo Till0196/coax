@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // TSMode selects how the transport stream leaves the chip (cfg->parallel).

@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/demod/tc90522"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
 	"github.com/Till0196/coax/internal/coaxd/pcie/windriver"
 	"github.com/Till0196/coax/internal/coaxd/tuning"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // card is one PT1 or PT2 and everything on it the four receivers share: one

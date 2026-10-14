@@ -8,7 +8,7 @@ package graph
 import (
 	"fmt"
 
-	"github.com/Till0196/coax/internal/coaxd/win32/directshow"
+	"github.com/Till0196/coax/pkg/win32/directshow"
 
 	"github.com/Till0196/coax/internal/coaxd/bda/filters"
 	"github.com/Till0196/coax/internal/coaxd/bda/vendors"

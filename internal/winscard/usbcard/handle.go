@@ -6,7 +6,7 @@ package usbcard
 import (
 	"strings"
 
-	"github.com/Till0196/coax/internal/winscard"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // Handle is one reader held open below the level PC/SC works at, for the IFD

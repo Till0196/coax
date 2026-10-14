@@ -15,7 +15,7 @@ package fc0012
 import (
 	"fmt"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // The tuner sits behind the demodulator rather than on the bridge's bus, so

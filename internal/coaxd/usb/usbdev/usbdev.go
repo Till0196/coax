@@ -11,7 +11,7 @@ package usbdev
 
 import (
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // Backend describes one board driver to the registry. A new tuner ships as a

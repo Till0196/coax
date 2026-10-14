@@ -9,7 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/win32/directshow"
+	"github.com/Till0196/coax/pkg/win32/directshow"
 )
 
 // --- IMemInputPin ----------------------------------------------------------

@@ -23,8 +23,8 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/Till0196/coax/internal/coaxd/win32"
-	"github.com/Till0196/coax/internal/coaxd/win32/directshow"
+	"github.com/Till0196/coax/pkg/win32"
+	"github.com/Till0196/coax/pkg/win32/directshow"
 )
 
 // Sink is the renderer this package's doc describes.

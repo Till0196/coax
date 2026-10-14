@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/winscard"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // slot is one card slot: the board it is in, the connections to it, and the T=1

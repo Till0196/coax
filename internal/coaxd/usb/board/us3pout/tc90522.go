@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/demod/tc90522"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // The board fits one dual-core TC90522: the terrestrial core answers at 0x20

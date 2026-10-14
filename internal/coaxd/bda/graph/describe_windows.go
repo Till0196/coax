@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Till0196/coax/internal/coaxd/win32/directshow"
+	"github.com/Till0196/coax/pkg/win32/directshow"
 
-	"github.com/Till0196/coax/internal/coaxd/bda/comutil"
+	"github.com/Till0196/coax/pkg/win32/comutil"
 )
 
 // describeGraph lists the filters in a graph and how many of their pins are

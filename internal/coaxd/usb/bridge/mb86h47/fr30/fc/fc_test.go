@@ -8,7 +8,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/Till0196/coax/internal/coaxd/usb/bridge/mb86h47/fr30/sim"
+	"github.com/Till0196/coax/pkg/fr30/sim"
 )
 
 const (

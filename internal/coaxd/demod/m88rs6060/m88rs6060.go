@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // TSMode is enum m88rs6060_ts_mode minus its unused zero value.

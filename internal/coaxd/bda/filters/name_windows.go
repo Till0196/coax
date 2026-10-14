@@ -8,9 +8,9 @@ package filters
 import (
 	"unsafe"
 
-	"github.com/Till0196/coax/internal/coaxd/win32"
+	"github.com/Till0196/coax/pkg/win32"
 
-	"github.com/Till0196/coax/internal/coaxd/bda/comutil"
+	"github.com/Till0196/coax/pkg/win32/comutil"
 )
 
 // The two names a device has: the path Windows knows it by, and the name it

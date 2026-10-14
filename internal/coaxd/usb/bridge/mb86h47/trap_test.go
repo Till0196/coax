@@ -6,8 +6,8 @@ package mb86h47
 import (
 	"testing"
 
-	"github.com/Till0196/coax/internal/coaxd/usb/bridge/mb86h47/fr30"
-	"github.com/Till0196/coax/internal/coaxd/usb/bridge/mb86h47/fr30/sim"
+	"github.com/Till0196/coax/pkg/fr30"
+	"github.com/Till0196/coax/pkg/fr30/sim"
 )
 
 // mustAssemble finishes a reference program.

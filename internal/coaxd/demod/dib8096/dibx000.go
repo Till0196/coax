@@ -9,7 +9,7 @@
 
 package dib8096
 
-import "github.com/Till0196/coax/internal/coaxd/i2c"
+import "github.com/Till0196/coax/pkg/i2c"
 
 // Frequency bands, as the BAND_* bits of dibx000_common.h. An AGC setting
 // declares the bands it covers by OR-ing them.

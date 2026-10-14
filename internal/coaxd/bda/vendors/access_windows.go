@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/Till0196/coax/internal/coaxd/win32"
-	"github.com/Till0196/coax/internal/coaxd/win32/directshow"
+	"github.com/Till0196/coax/pkg/win32"
+	"github.com/Till0196/coax/pkg/win32/directshow"
 )
 
 // The two ways a vendor's own items are reached on Windows. One vendor puts them

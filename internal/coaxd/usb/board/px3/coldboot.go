@@ -10,7 +10,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/device"
 	"github.com/Till0196/coax/internal/coaxd/usb/bridge/asv5211"
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // A board that has just been plugged in runs the bridge's boot ROM and

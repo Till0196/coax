@@ -6,7 +6,7 @@ package px3
 import (
 	"testing"
 
-	"github.com/Till0196/coax/internal/coaxd/usb/usbio"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // TestWiringIsPerGeneration. Pointing one generation's wiring at the other

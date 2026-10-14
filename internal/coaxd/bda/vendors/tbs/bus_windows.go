@@ -9,7 +9,7 @@ import (
 	"fmt"
 
 	"github.com/Till0196/coax/internal/coaxd/bda/vendors"
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // Access is a property set that also takes a request in its instance data,

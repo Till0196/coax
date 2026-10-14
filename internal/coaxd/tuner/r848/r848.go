@@ -14,7 +14,7 @@ package r848
 import (
 	"fmt"
 
-	"github.com/Till0196/coax/internal/coaxd/i2c"
+	"github.com/Till0196/coax/pkg/i2c"
 )
 
 // xtalKHz is the crystal as the register arithmetic wants it. Config.XtalHz
