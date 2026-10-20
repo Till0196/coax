@@ -37,6 +37,9 @@ type Options struct {
 	FirmwareDir string
 	// Report receives a line about anything worth saying.
 	Report func(string)
+	// Agent names this program in the User-Agent of every request, so that a
+	// daemon's peer can be told from another. Empty leaves Go's own.
+	Agent string
 }
 
 type Client struct {
@@ -125,6 +128,32 @@ const (
 	startDeadline = 20 * time.Second
 )
 
+// named puts the program's name on every request a transport carries.
+func named(agent string, transport *http.Transport) http.RoundTripper {
+	if agent == "" {
+		return transport
+	}
+	return agentTransport{agent: agent, next: transport}
+}
+
+type agentTransport struct {
+	agent string
+	next  *http.Transport
+}
+
+func (t agentTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	// A round tripper is not to change the request it was given.
+	request = request.Clone(request.Context())
+	request.Header.Set("User-Agent", t.agent)
+	return t.next.RoundTrip(request)
+}
+
+// CloseIdleConnections is passed on: closing a connection is how a lease or a
+// card is given back, and http.Client only reaches a transport that has it.
+func (t agentTransport) CloseIdleConnections() {
+	t.next.CloseIdleConnections()
+}
+
 // connect opens a connection and asks the daemon for its version.
 func connect(ctx context.Context, address string, options Options) (*Client, error) {
 	client := &Client{options: options}
@@ -136,7 +165,7 @@ func connect(ctx context.Context, address string, options Options) (*Client, err
 		}
 		client.base = "http://coaxd"
 		newClient := func() *http.Client {
-			return &http.Client{Transport: &http.Transport{
+			return &http.Client{Transport: named(options.Agent, &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					var dialer net.Dialer
 					return dialer.DialContext(ctx, "unix", socket)
@@ -146,7 +175,7 @@ func connect(ctx context.Context, address string, options Options) (*Client, err
 				// the one holding its tuner.
 				MaxConnsPerHost:     1,
 				MaxIdleConnsPerHost: 1,
-			}}
+			})}
 		}
 		client.http = newClient()
 		client.control = newClient()
@@ -160,10 +189,10 @@ func connect(ctx context.Context, address string, options Options) (*Client, err
 		}
 		client.base = strings.TrimSuffix(base, "/")
 		newClient := func() *http.Client {
-			return &http.Client{Transport: &http.Transport{
+			return &http.Client{Transport: named(options.Agent, &http.Transport{
 				MaxConnsPerHost:     1,
 				MaxIdleConnsPerHost: 1,
-			}}
+			})}
 		}
 		client.http = newClient()
 		client.control = newClient()

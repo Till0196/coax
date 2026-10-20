@@ -114,6 +114,7 @@ func (c *command) dial(ctx context.Context) (*host.Client, error) {
 		NoStart:     c.host.noStart,
 		FirmwareDir: c.host.firmwareDir,
 		Report:      c.host.report,
+		Agent:       "coax/" + version,
 	})
 }
 

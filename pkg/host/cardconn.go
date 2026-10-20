@@ -63,7 +63,7 @@ func (c *Client) pinned() *http.Client {
 			return dialer.DialContext(ctx, "unix", socket)
 		}
 	}
-	return &http.Client{Transport: transport}
+	return &http.Client{Transport: named(c.options.Agent, transport)}
 }
 
 // socketPath is the socket this client dials, when it dials one at all.
