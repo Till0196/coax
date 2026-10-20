@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
-	"sort"
 	"sync"
 	"time"
 
@@ -221,18 +220,13 @@ func (p *Provider) devices() ([]cardDevice, error) {
 		return nil, fmt.Errorf("list USB boards: %w", err)
 	}
 	var found []cardDevice
-	numbered := numberedBoards(attached)
 	for _, candidate := range attached {
 		naming, ok := slotBackends[candidate.Backend]
 		if !ok {
 			continue
 		}
-		name := readerName(naming.vendor, naming.model, boardIdentity(candidate))
-		if candidate.Serial == "" {
-			name = numberedReaderName(naming.vendor, naming.model, numbered[candidate.Selector])
-		}
 		found = append(found, cardDevice{
-			name:     name,
+			name:     readerName(naming.vendor, naming.model, boardIdentity(candidate)),
 			backend:  candidate.Backend,
 			selector: candidate.Selector,
 			serial:   candidate.Serial,
@@ -322,47 +316,14 @@ func (p *Provider) slotFor(one cardDevice) *slot {
 	return created
 }
 
-// readerName builds the name applications will see and remember, for a board
-// with a serial number. The identifier is a hash so the name is one token wide,
-// and it follows the board from socket to socket.
+// readerName builds the name applications will see and remember. The
+// identifier is a hash so the name is one token wide. A board with no serial
+// number is named by its socket rather than by its place among the boards of
+// its model: a number would move to another board when one of the same model
+// was plugged in beside it, and an application would then open a slot with no
+// card in it.
 func readerName(vendor, model, id string) string {
 	return fmt.Sprintf("%s %s Smart Card Reader (ID: %s)", vendor, model, id)
-}
-
-// numberedReaderName names the reader of a board with no serial number by its
-// place among the boards of its model, the way PC/SC readers are commonly
-// numbered. A name built from the socket would change every time the board was
-// moved, and an application remembers the name; a number does not change while
-// one board of the model is attached, wherever it is plugged in.
-func numberedReaderName(vendor, model string, number int) string {
-	return fmt.Sprintf("%s %s Smart Card Reader %d", vendor, model, number)
-}
-
-// numberedBoards numbers the card-carrying boards that have no serial number,
-// from 0 within each model, in the order of the sockets they are in. Keyed by
-// selector.
-func numberedBoards(attached []Attached) map[string]int {
-	byModel := map[slotNaming][]Attached{}
-	for _, one := range attached {
-		naming, ok := slotBackends[one.Backend]
-		if !ok || one.Serial != "" {
-			continue
-		}
-		byModel[naming] = append(byModel[naming], one)
-	}
-	numbers := map[string]int{}
-	for _, boards := range byModel {
-		sort.Slice(boards, func(i, j int) bool {
-			if boards[i].Port != boards[j].Port {
-				return boards[i].Port < boards[j].Port
-			}
-			return boards[i].Selector < boards[j].Selector
-		})
-		for number, one := range boards {
-			numbers[one.Selector] = number
-		}
-	}
-	return numbers
 }
 
 // identity hashes what tells one attached board from another. FNV-1a is used

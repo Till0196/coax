@@ -136,9 +136,9 @@ func oneBoard(t *testing.T) (*Provider, *fakeBoard, string) {
 	return provider, board, readers[0]
 }
 
-func TestReaderNameOfABoardWithoutASerialIsNumbered(t *testing.T) {
+func TestReaderNameOfABoardWithoutASerialCarriesAnIdentifier(t *testing.T) {
 	_, _, name := oneBoard(t)
-	if name != "PLEX PX-W3U4 series Smart Card Reader 0" {
+	if !strings.HasPrefix(name, "PLEX PX-W3U4 series Smart Card Reader (ID: ") {
 		t.Errorf("named the reader %q", name)
 	}
 }
@@ -157,39 +157,28 @@ func TestReaderNameOfABoardWithASerialCarriesItsIdentifier(t *testing.T) {
 	}
 }
 
-func TestBoardsWithoutASerialAreNumberedBySocketWithinTheirModel(t *testing.T) {
-	stub(t, nil, []usb.Detected{
-		{Backend: "us3pout", Device: "1:9", Port: "1-14"},
-		{Backend: "us3pout", Device: "1:3", Port: "1-13.3"},
-		{Backend: "fsusb2", Device: "1:5", Port: "1-2"},
-	})
-	context, _ := New(Config{}).EstablishContext(winscard.ScopeSystem)
-	defer context.Release()
-	readers, err := context.Readers(nil)
-	if err != nil {
-		t.Fatalf("list readers: %v", err)
+// A board without a serial keeps its name when another of its model is
+// plugged in beside it, whichever socket sorts first: the name an application
+// remembers has to go on meaning the slot the card is in.
+func TestABoardWithoutASerialKeepsItsNameBesideAnotherOfItsModel(t *testing.T) {
+	alone := []usb.Detected{{Backend: "cech-zd1j", Device: "1:9", Port: "1-2"}}
+	stub(t, nil, alone)
+	before, err := New(Config{}).devices()
+	if err != nil || len(before) != 1 {
+		t.Fatalf("devices: %v, %v", before, err)
 	}
-	want := map[string]bool{
-		"DigiBest US-3POUT Smart Card Reader 0": true,
-		"DigiBest US-3POUT Smart Card Reader 1": true,
-		"KEIAN KTV-FSUSB2 Smart Card Reader 0":  true,
+
+	stub(t, nil, append([]usb.Detected{{Backend: "cech-zd1j", Device: "1:3", Port: "1-13.3"}}, alone...))
+	after, err := New(Config{}).devices()
+	if err != nil || len(after) != 2 {
+		t.Fatalf("devices: %v, %v", after, err)
 	}
-	if len(readers) != len(want) {
-		t.Fatalf("listed %v", readers)
+	if after[0].name == after[1].name {
+		t.Fatalf("both boards are %q", after[0].name)
 	}
-	for _, name := range readers {
-		if !want[name] {
-			t.Errorf("listed %q, want %v", name, want)
-		}
-	}
-	// The one in the socket that sorts first is number 0.
-	devices, err := New(Config{}).devices()
-	if err != nil {
-		t.Fatalf("devices: %v", err)
-	}
-	for _, one := range devices {
-		if one.port == "1-13.3" && one.name != "DigiBest US-3POUT Smart Card Reader 0" {
-			t.Errorf("the board in 1-13.3 is %q", one.name)
+	for _, one := range after {
+		if one.port == "1-2" && one.name != before[0].name {
+			t.Errorf("the board in 1-2 was %q alone and %q beside another", before[0].name, one.name)
 		}
 	}
 }
