@@ -130,9 +130,12 @@ var core1Program = mustBuild(buildCore1)
 // up with.
 func (bridge *Bridge) core1StartLocked() error {
 	bridge.loadLocked(core1Base, core1Origin, core1Program)
-	for _, address := range []uint32{mailbox, mailbox + mailboxAnswer, mailbox + mailboxAlive, ringScratch, ringAddresses, ringFailure} {
+	for _, address := range []uint32{mailbox, mailbox + mailboxAnswer, mailbox + mailboxAlive, ringScratch, ringAddresses, ringFailure,
+		jobArea + jobSequence, jobArea + jobDone} {
 		bridge.write32(core1Base+address, 0)
 	}
+	bridge.jobSequence, bridge.spinRate = 0, 0
+	bridge.tableCheckLocked()
 	bridge.writeBlock(core1Base+ring, make([]byte, ringSlots*4))
 	// The command channel starts from a new sequence number at the first
 	// slot.

@@ -319,6 +319,212 @@ func buildCore1() ([]uint32, error) {
 		b.Set(vars(commandSlot), next)
 	})
 
+	// The jobs (job.go).
+	job := func(offset uint32) *Node { return word(jobArea + offset) }
+
+	// delay runs the wait loop n times, counting the passes for the host. A new
+	// job given meanwhile ends it, which stops the rate measurement.
+	delay := p.Func("delay", 1)
+	delay.Define(func(b *Block) {
+		n := delay.Param(0)
+		given := b.Tmp("given", job(jobSequence))
+		b.While(n.Ne(0).AndAlso(job(jobSequence).Eq(given)), func(b *Block) {
+			b.Set(job(jobSpin), job(jobSpin).Add(1))
+			b.Inc(n, -1)
+		})
+	})
+
+	// shortWrite and shortRead reach a register with a one-byte number through
+	// the job's mailbox; shortRead gives the value, or the error in bits 16 up.
+	shortWrite := p.Func("shortWrite", 3) // address, register, value
+	shortWrite.Define(func(b *Block) {
+		m := K(jobMailbox)
+		value := shortWrite.Param(2)
+		b.Store8(m.Add(1), shortWrite.Param(0))
+		b.Store8(m.Add(2), 3)
+		b.Store8(m.Add(3), 0)
+		b.Store8(m.Add(mailboxWrite), shortWrite.Param(1))
+		b.Store8(m.Add(mailboxWrite+1), value.Shr(8))
+		b.Store8(m.Add(mailboxWrite+2), value)
+		b.Return(transfer.Call(m))
+	})
+	shortRead := p.Func("shortRead", 2) // address, register
+	shortRead.Define(func(b *Block) {
+		m := K(jobMailbox)
+		b.Store8(m.Add(1), shortRead.Param(0))
+		b.Store8(m.Add(2), 1)
+		b.Store8(m.Add(3), 2)
+		b.Store8(m.Add(mailboxWrite), shortRead.Param(1))
+		err := b.Tmp("err", transfer.Call(m))
+		b.If(err.Ne(i2cOK), func(b *Block) { b.Return(err.Shl(16)) })
+		b.Return(Mem16(m.Add(mailboxRead)))
+	})
+
+	// tableFind gives the address of key's entry, or 0; a key of 0 finds a free
+	// one.
+	tableFind := p.Func("tableFind", 1)
+	tableFind.Define(func(b *Block) {
+		key := tableFind.Param(0)
+		at := b.Tmp("at", tableBase)
+		b.While(at.LtU(tableHeader), func(b *Block) {
+			b.If(Mem32(at).Eq(key), func(b *Block) { b.Return(at) })
+			b.Inc(at, tableEntry)
+		})
+		b.Return(0)
+	})
+	// tableEntryFor gives key's entry, making one if there is none: a free
+	// entry, or the next in turn, emptied.
+	tableEntryFor := p.Func("tableEntryFor", 1)
+	tableEntryFor.Define(func(b *Block) {
+		key := tableEntryFor.Param(0)
+		at := b.Tmp("at", tableFind.Call(key))
+		b.If(at.Ne(0), func(b *Block) { b.Return(at) })
+		b.Set(at, tableFind.Call(0))
+		b.If(at.Eq(0), func(b *Block) {
+			next := b.Tmp("next", word(tableNext))
+			b.Set(at, K(tableBase).Add(next.Mul(tableEntry)))
+			b.Set(word(tableNext), next.Add(1).And(tableEntries-1))
+		})
+		b.Store32(at.Add(4), 0)
+		b.Store32(at.Add(8), 0)
+		b.Store32(at.Add(12), 0)
+		b.Store32(at, key)
+		b.Return(at)
+	})
+	// int8 is the low byte of x, sign-extended.
+	int8 := func(x *Node) *Node { return x.And(0xff).Xor(0x80).Sub(0x80) }
+
+	// captrim is the job jobCaptrimKind (Bridge.Captrim). Out: the trim, its
+	// distance from target, and whether it started from a remembered one.
+	captrim := p.Func("captrim", 0)
+	captrim.Define(func(b *Block) {
+		address := b.Tmp("address", job(jobParam))
+		lo4 := b.Tmp("lo4", job(jobParam+4))
+		c := b.Tmp("c", job(jobParam+8))
+		step := b.Tmp("step", job(jobParam+12))
+		target := b.Tmp("target", job(jobParam+16))
+		key := b.Tmp("key", job(jobParam+32))
+		b.Set(job(jobResult+8), 0)
+		b.If(key.Ne(0), func(b *Block) {
+			at := b.Tmp("at", tableFind.Call(key))
+			b.If(at.Ne(0).AndAlso(Mem32(at.Add(4)).And(tableCaptrim).Ne(0)), func(b *Block) {
+				b.Set(c, int8(Mem32(at.Add(4))))
+				b.Set(step, rememberedStep)
+				b.Set(job(jobResult+8), 1)
+			})
+		})
+		best := b.Tmp("best", c)
+		diff := b.Tmp("diff", 3000)
+		b.Do(delay.Call(job(jobParam + 20)))
+		b.Loop(func(b *Block) {
+			b.Set(step, step.Sar(1))
+			err := b.Tmp("err", shortWrite.Call(address, 0x18, lo4.Or(c.And(0xffff))))
+			b.If(err.Ne(i2cOK), func(b *Block) { b.Return(err) })
+			b.Do(delay.Call(job(jobParam + 24)))
+			r := b.Tmp("r", shortRead.Call(address, 0x1d))
+			b.If(r.Shr(16).Ne(0), func(b *Block) { b.Return(r.Shr(16)) })
+			adc := b.Tmp("adc", r)
+			b.If(adc.Ge(target), func(b *Block) {
+				b.Set(adc, adc.Sub(target))
+				b.If(adc.Lt(diff), func(b *Block) {
+					b.Set(diff, adc)
+					b.Set(best, c)
+				})
+				b.Set(c, c.Sub(step))
+			}).Else(func(b *Block) {
+				b.Set(adc, target.Sub(adc))
+				b.If(adc.Lt(diff), func(b *Block) {
+					b.Set(diff, adc)
+					b.Set(best, c)
+				})
+				b.Set(c, c.Add(step))
+			})
+			b.Set(c, int8(c))
+			b.Do(delay.Call(job(jobParam + 28)))
+			b.If(step.Lt(1), func(b *Block) { b.Break() })
+		})
+		b.Set(job(jobResult), best)
+		b.Set(job(jobResult+4), diff)
+		b.If(key.Ne(0), func(b *Block) {
+			at := b.Tmp("at", tableEntryFor.Call(key))
+			b.Store32(at.Add(4), Mem32(at.Add(4)).And(tableTMCC).Or(tableCaptrim).Or(best.And(0xff)))
+		})
+		b.Return(shortWrite.Call(address, 0x18, lo4.Or(best.And(0xffff))))
+	})
+
+	// longRead reads a register with a two-byte number, as shortRead does.
+	longRead := p.Func("longRead", 2) // address, register
+	longRead.Define(func(b *Block) {
+		m := K(jobMailbox)
+		register := longRead.Param(1)
+		b.Store8(m.Add(1), longRead.Param(0))
+		b.Store8(m.Add(2), 2)
+		b.Store8(m.Add(3), 2)
+		b.Store8(m.Add(mailboxWrite), register.Shr(8))
+		b.Store8(m.Add(mailboxWrite+1), register)
+		err := b.Tmp("err", transfer.Call(m))
+		b.If(err.Ne(i2cOK), func(b *Block) { b.Return(err.Shl(16)) })
+		b.Return(Mem16(m.Add(mailboxRead)))
+	})
+
+	// tmccRecall is the job jobTMCCRecallKind: whether the key has parameters,
+	// and them.
+	tmccRecall := p.Func("tmccRecall", 0)
+	tmccRecall.Define(func(b *Block) {
+		b.Set(job(jobResult), 0)
+		at := b.Tmp("at", tableFind.Call(job(jobParam)))
+		b.If(at.Eq(0).OrElse(job(jobParam).Eq(0)), func(b *Block) { b.Return(i2cOK) })
+		b.If(Mem32(at.Add(4)).And(tableTMCC).Eq(0), func(b *Block) { b.Return(i2cOK) })
+		b.Set(job(jobResult+4), Mem32(at.Add(8)))
+		b.Set(job(jobResult+8), Mem32(at.Add(12)))
+		b.Set(job(jobResult), 1)
+		b.Return(i2cOK)
+	})
+
+	// tmccRemember is the job jobTMCCRememberKind: it packs the TMCC registers as
+	// TMCC says and keeps them. Out: whether they changed, and the two words.
+	tmccRemember := p.Func("tmccRemember", 0)
+	tmccRemember.Define(func(b *Block) {
+		address := b.Tmp("address", job(jobParam))
+		key := b.Tmp("key", job(jobParam+4))
+		// read gives a register, or leaves the job with its error.
+		read := func(b *Block, register uint32) *Node {
+			r := b.Tmp("r", longRead.Call(address, register))
+			b.If(r.Shr(16).Ne(0), func(b *Block) { b.Return(r.Shr(16)) })
+			return r
+		}
+		first := b.Tmp("first", read(b, 570).And(0x73))
+		b.Set(first, first.Or(read(b, 505).And(1).Shl(8)))
+		layers := b.Tmp("layers", 0)
+		for i := uint32(0); i < 3; i++ {
+			layer := b.Tmp("layer", read(b, 493+i).And(0x0f))
+			b.Set(layer, layer.Or(read(b, 499+i).And(3).Shl(4)))
+			b.Set(layer, layer.Or(read(b, 481+i).And(7).Shl(6)))
+			b.Set(layer, layer.Or(read(b, 487+i).And(3).Shl(9)))
+			switch i {
+			case 0:
+				b.Set(first, first.Or(layer.Shl(12)))
+			case 1:
+				b.Set(layers, layer)
+			case 2:
+				b.Set(layers, layers.Or(layer.Shl(16)))
+			}
+		}
+		b.Set(job(jobResult), 0)
+		b.Set(job(jobResult+4), first)
+		b.Set(job(jobResult+8), layers)
+		b.If(key.Eq(0), func(b *Block) { b.Return(i2cOK) })
+		at := b.Tmp("at", tableEntryFor.Call(key))
+		was := b.Tmp("was", Mem32(at.Add(4)))
+		b.If(was.And(tableTMCC).Ne(0).AndAlso(Mem32(at.Add(8)).Ne(first).OrElse(Mem32(at.Add(12)).Ne(layers))), func(b *Block) {
+			b.Set(job(jobResult), 1)
+		})
+		b.Store32(at.Add(8), first)
+		b.Store32(at.Add(12), layers)
+		b.Store32(at.Add(4), was.Or(tableTMCC))
+		b.Return(i2cOK)
+	})
+
 	main.Define(func(b *Block) {
 		lap := b.Tmp("lap", ringLap)     // the lap expected in the next slot
 		slot := b.Tmp("slot", ringSlots) // the number of the next slot
@@ -351,6 +557,19 @@ func buildCore1() ([]uint32, error) {
 				b.If(err.Ne(i2cOK).AndAlso(word(ringFailure).Eq(0)), func(b *Block) { b.Store32(K(ringFailure), answer) })
 				b.Inc(slot, 1)
 				b.If(slot.And(ringSlots-1).Eq(0), func(b *Block) { b.Set(lap, lap.Add(ringLap)) })
+				b.Continue()
+			})
+
+			// A job, if the host has given one since the last done.
+			b.If(job(jobSequence).Ne(job(jobDone)), func(b *Block) {
+				kind := b.Tmp("kind", job(jobKind))
+				err := b.Tmp("err", i2cOK)
+				b.If(kind.Eq(jobSpinKind), func(b *Block) { b.Do(delay.Call(job(jobParam))) })
+				b.If(kind.Eq(jobCaptrimKind), func(b *Block) { b.Set(err, captrim.Call()) })
+				b.If(kind.Eq(jobTMCCRecallKind), func(b *Block) { b.Set(err, tmccRecall.Call()) })
+				b.If(kind.Eq(jobTMCCRememberKind), func(b *Block) { b.Set(err, tmccRemember.Call()) })
+				b.Set(job(jobError), err)
+				b.Set(job(jobDone), job(jobSequence))
 				b.Continue()
 			})
 

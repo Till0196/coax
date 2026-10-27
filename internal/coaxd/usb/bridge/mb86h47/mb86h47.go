@@ -84,6 +84,11 @@ type Bridge struct {
 	commandSlot     uint32
 	commandHeld     []uint32
 
+	// jobSequence numbers the last job given to core 1 (job.go); spinRate is its
+	// wait loop's passes a second, once measured.
+	jobSequence uint32
+	spinRate    float64
+
 	// steps is stream setup queued by PrepareStream, stepsErr the first
 	// failure of a step run by Idle; core0Loaded is set once core 0's
 	// program is known to be in place.
