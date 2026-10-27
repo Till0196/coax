@@ -184,6 +184,13 @@ func (fakeCard) GetAttrib(id winscard.Attribute) ([]byte, error) {
 // running starts a server on a socket of its own and returns its path.
 func running(t *testing.T) string {
 	t.Helper()
+	path, _ := runningServer(t)
+	return path
+}
+
+// runningServer is running, with the server for a test to look into.
+func runningServer(t *testing.T) (string, *Server) {
+	t.Helper()
 	slots := &fakeSlots{present: true}
 	table := NewTable(slots, 5*time.Millisecond, false)
 	service := winscard.NewService(&fakeProvider{slots: slots})
@@ -200,7 +207,7 @@ func running(t *testing.T) string {
 		_ = listener.Close()
 		_ = table.Close()
 	})
-	return path
+	return path, server
 }
 
 // client is a test client speaking the protocol the way libpcsclite does.
@@ -350,7 +357,7 @@ func TestConnectTransmitDisconnect(t *testing.T) {
 }
 
 func TestCancelSignalsTheWaitingConnection(t *testing.T) {
-	path := running(t)
+	path, server := runningServer(t)
 	waiter := dial(t, path)
 	waiter.handshake(versionMajor, versionMinor)
 	context, _ := waiter.establish()
@@ -363,6 +370,19 @@ func TestCancelSignalsTheWaitingConnection(t *testing.T) {
 		t.Fatalf("the first event was %v", winscard.Code(result))
 	}
 	waiter.send(cmdWaitStateChange, nil)
+	// A cancel only reaches a wait the server has registered, and the two come
+	// on different connections.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		server.mutex.Lock()
+		registered := len(server.waiters)
+		server.mutex.Unlock()
+		if registered == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second wait was never registered")
+		}
+	}
 
 	// The cancel arrives on a connection of its own, because the waiting one
 	// is blocked reading. This is the case the server's context table exists
