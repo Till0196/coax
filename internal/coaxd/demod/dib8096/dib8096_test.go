@@ -556,3 +556,122 @@ func TestTuneRetriesAfterASecond(t *testing.T) {
 		t.Error("a channel that had locked was searched for again")
 	}
 }
+
+// rememberingChip is the fake chip behind a master that keeps the
+// parameters a channel locked with.
+type rememberingChip struct {
+	*fakeChip
+	kept      map[uint32][2]uint32
+	recalls   int
+	remembers int
+	// changed, when set, is what the next RememberTMCC reports as having been
+	// there before, whatever was.
+	changed *[2]uint32
+}
+
+func (chip *rememberingChip) RecallTMCC(key uint32) ([2]uint32, bool, error) {
+	chip.recalls++
+	words, ok := chip.kept[key]
+	return words, ok, nil
+}
+
+// RememberTMCC packs the fake chip's TMCC registers as the bridge does.
+func (chip *rememberingChip) RememberTMCC(address byte, key uint32) ([2]uint32, bool, error) {
+	chip.remembers++
+	r := chip.registers
+	layer := func(i uint16) uint32 {
+		return uint32(r[493+i]&0xf) | uint32(r[499+i]&3)<<4 | uint32(r[481+i]&7)<<6 | uint32(r[487+i]&3)<<9
+	}
+	words := [2]uint32{uint32(r[570]&0x73) | uint32(r[505]&1)<<8 | layer(0)<<12, layer(1) | layer(2)<<16}
+	before, had := chip.kept[key]
+	if chip.changed != nil {
+		before, had = *chip.changed, true
+		chip.changed = nil
+	}
+	chip.kept[key] = words
+	return words, had && before != words, nil
+}
+
+// restarts counts the demodulator restarts the writes show: one an attempt
+// that got as far as its known parameters.
+func restarts(chip *fakeChip) int {
+	n := 0
+	for _, w := range chip.writes {
+		if w.register == 770 && w.value == 0x4000 {
+			n++
+		}
+	}
+	return n
+}
+
+// A remembered channel is tuned without the search; parameters that turn out
+// to be another multiplex's are replaced, and ones that do not lock are searched past.
+func TestTuneUsesRememberedParameters(t *testing.T) {
+	chip := &rememberingChip{fakeChip: lockedChip(), kept: map[uint32][2]uint32{}}
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	demod := New(chip)
+	demod.setTiming(clock.Now, clock.Sleep, 5*time.Second)
+	if err := demod.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	const frequency = 473142857
+	const key = frequency / 1000
+
+	chip.writes = nil
+	if err := demod.Tune(frequency); err != nil {
+		t.Fatal(err)
+	}
+	if !searched(chip.fakeChip) || chip.remembers != 1 {
+		t.Fatalf("first tune: searched %v, remembered %d times; want a search and one", searched(chip.fakeChip), chip.remembers)
+	}
+	if _, ok := chip.kept[key]; !ok {
+		t.Fatalf("nothing kept under %d", key)
+	}
+
+	chip.writes = nil
+	if err := demod.Tune(frequency); err != nil {
+		t.Fatal(err)
+	}
+	if searched(chip.fakeChip) {
+		t.Error("the second tune searched for parameters the master had")
+	}
+	if demod.demod.status != statusDataLocked || restarts(chip.fakeChip) != 1 {
+		t.Errorf("second tune: status %d after %d attempts, want data locked after 1", demod.demod.status, restarts(chip.fakeChip))
+	}
+	if c := demod.channel; c.transmissionMode != transmission8K || c.guardInterval != guard1_8 || c.layer[1].segmentCount != 12 {
+		t.Errorf("tuned with %+v", c)
+	}
+
+	// The frequency now carries another multiplex than the one remembered.
+	other := chip.kept[key]
+	other[1] ^= 1 << 6
+	chip.changed = &other
+	chip.writes = nil
+	if err := demod.Tune(frequency); err != nil {
+		t.Fatal(err)
+	}
+	if restarts(chip.fakeChip) != 2 || searched(chip.fakeChip) {
+		t.Errorf("after a change: %d attempts, searched %v; want 2 and no search", restarts(chip.fakeChip), searched(chip.fakeChip))
+	}
+
+	// What is remembered does not lock at all: the search finds the channel.
+	wrong := chip.kept[key]
+	wrong[0] ^= 3 // another guard interval
+	chip.kept[key] = wrong
+	chip.queues[568] = []uint16{0, 0, 0x3ffe}
+	chip.queues[1284] = []uint16{0x1, 0x0, 0x2}
+	chip.writes = nil
+	if err := demod.Tune(frequency); err != nil {
+		t.Fatal(err)
+	}
+	if !searched(chip.fakeChip) || demod.demod.status != statusDataLocked {
+		t.Errorf("remembered parameters that do not lock: searched %v, status %d; want a search and a lock", searched(chip.fakeChip), demod.demod.status)
+	}
+}
+
+// searched reports whether the search was programmed (P_search_param_select,
+// 357) since the writes were last cleared.
+func searched(chip *fakeChip) bool {
+	_, ok := chip.lastWrite(357)
+	return ok
+}

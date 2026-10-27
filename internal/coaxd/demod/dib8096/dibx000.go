@@ -9,7 +9,11 @@
 
 package dib8096
 
-import "github.com/Till0196/coax/pkg/i2c"
+import (
+	"time"
+
+	"github.com/Till0196/coax/pkg/i2c"
+)
 
 // Frequency bands, as the BAND_* bits of dibx000_common.h. An AGC setting
 // declares the bands it covers by OR-ing them.
@@ -312,6 +316,25 @@ func (bus tunerBus) through(address byte, fn func() error) error {
 		master.gate = address
 	}
 	return fn()
+}
+
+// captrimmer is a master that runs the DiB0090's capacitor trim search itself,
+// waits and all.
+type captrimmer interface {
+	Captrim(address byte, lo4 uint16, key uint32, start, step, target int, settleWrite, settleRead time.Duration) (best, diff int, err error)
+}
+
+// captrim hands the search to the master; ok is false when it cannot run it.
+func (bus tunerBus) captrim(address byte, lo4 uint16, key uint32, start, step, target int, settleWrite, settleRead time.Duration) (best, diff int, ok bool, err error) {
+	runner, ok := bus.parent.(captrimmer)
+	if !ok {
+		return 0, 0, false, nil
+	}
+	err = bus.through(address, func() (err error) {
+		best, diff, err = runner.Captrim(address, lo4, key, start, step, target, settleWrite, settleRead)
+		return err
+	})
+	return best, diff, true, err
 }
 
 func (bus tunerBus) Write(address byte, data []byte) error {

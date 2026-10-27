@@ -413,11 +413,56 @@ func (board *Demod) Tune(frequencyHz uint32) (err error) {
 	return board.failure.err
 }
 
-// setFrontend is one attempt at a channel: what set_frontend does, from a
-// cleared cache as a DVBv5 tune from a frequency starts.
+// tmccMemory is a master that keeps, per frequency in kHz, the transmission
+// parameters a channel locked with, packed into two words.
+type tmccMemory interface {
+	RecallTMCC(key uint32) ([2]uint32, bool, error)
+	RememberTMCC(address byte, key uint32) ([2]uint32, bool, error)
+}
+
+// setFrontend is one attempt at a channel: remembered parameters are tuned with
+// instead of searched for, then checked against the TMCC, and redone if they differ.
 func (board *Demod) setFrontend(frequencyHz uint32) error {
+	memory, _ := board.demod.bus.(tmccMemory)
+	key := frequencyHz / 1000
+	recalled := false
+	if memory != nil {
+		words, ok, err := memory.RecallTMCC(key)
+		if err != nil {
+			return err
+		}
+		if ok {
+			if err := board.attempt(frequencyHz, &words); err != nil {
+				return err
+			}
+			recalled = board.demod.status == statusDataLocked
+		}
+	}
+	if !recalled {
+		if err := board.attempt(frequencyHz, nil); err != nil {
+			return err
+		}
+	}
+	if board.failure.err != nil || memory == nil || board.demod.status != statusDataLocked || board.demod.readStatus()&feHasLock == 0 {
+		return board.failure.err
+	}
+	words, changed, err := memory.RememberTMCC(Address, key)
+	if err != nil {
+		return err
+	}
+	if recalled && changed {
+		return board.attempt(frequencyHz, &words)
+	}
+	return nil
+}
+
+// attempt runs set_frontend once, with the parameters given or searched for.
+func (board *Demod) attempt(frequencyHz uint32, words *[2]uint32) error {
 	board.channel.clear()
 	board.channel.frequency = frequencyHz
+	if words != nil {
+		tmccFromWords(*words).apply(&board.channel)
+	}
 	err := board.demod.setFrontend()
 	board.tunedAt = board.demod.now()
 	return err

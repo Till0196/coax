@@ -1016,7 +1016,27 @@ func (state *dib8000) getFrontend() {
 	// the sound broadcasting paths are not ported, so it is read and dropped.
 	state.readWord(508)
 
-	val := state.readWord(570)
+	var registers tmccRegisters
+	registers.mode = state.readWord(570)
+	registers.partial = state.readWord(505)
+	for i := uint16(0); i < 3; i++ {
+		registers.segments[i] = state.readWord(493 + i)
+		registers.interleaving[i] = state.readWord(499 + i)
+		registers.rate[i] = state.readWord(481 + i)
+		registers.modulation[i] = state.readWord(487 + i)
+	}
+	registers.apply(c)
+}
+
+// tmccRegisters is what dib8000_get_frontend reads of the TMCC decoder.
+type tmccRegisters struct {
+	mode, partial                            uint16
+	segments, interleaving, rate, modulation [3]uint16
+}
+
+// apply sets the channel's parameters from the registers.
+func (registers tmccRegisters) apply(c *channel) {
+	val := registers.mode
 	c.inversion = int((val & 0x40) >> 6)
 	switch (val & 0x30) >> 4 {
 	case 1:
@@ -1038,22 +1058,19 @@ func (state *dib8000) getFrontend() {
 		c.guardInterval = guard1_4
 	}
 
-	val = state.readWord(505)
-	c.isdbtPartialReception = uint8(val & 1)
+	c.isdbtPartialReception = uint8(registers.partial & 1)
 
-	for i := uint16(0); i < 3; i++ {
-		val = state.readWord(493+i) & 0x0f
-		c.layer[i].segmentCount = uint8(val)
+	for i := 0; i < 3; i++ {
+		c.layer[i].segmentCount = uint8(registers.segments[i] & 0x0f)
 
-		val = state.readWord(499+i) & 0x3
+		val = registers.interleaving[i] & 0x3
 		// Interleaving can be 0, 1, 2 or 4
 		if val == 3 {
 			val = 4
 		}
 		c.layer[i].interleaving = uint8(val)
 
-		val = state.readWord(481 + i)
-		switch val & 0x7 {
+		switch registers.rate[i] & 0x7 {
 		case 1:
 			c.layer[i].fec = fec1_2
 		case 2:
@@ -1066,8 +1083,7 @@ func (state *dib8000) getFrontend() {
 			c.layer[i].fec = fec7_8
 		}
 
-		val = state.readWord(487 + i)
-		switch val & 0x3 {
+		switch registers.modulation[i] & 0x3 {
 		case 0:
 			c.layer[i].modulation = modulationDQPSK
 		case 1:
@@ -1078,6 +1094,19 @@ func (state *dib8000) getFrontend() {
 			c.layer[i].modulation = modulationQAM64
 		}
 	}
+}
+
+// tmccFromWords unpacks the registers as mb86h47.TMCC packs them.
+func tmccFromWords(words [2]uint32) tmccRegisters {
+	registers := tmccRegisters{mode: uint16(words[0] & 0x73), partial: uint16(words[0] >> 8 & 1)}
+	layers := [3]uint32{words[0] >> 12, words[1], words[1] >> 16}
+	for i, layer := range layers {
+		registers.segments[i] = uint16(layer & 0xf)
+		registers.interleaving[i] = uint16(layer >> 4 & 3)
+		registers.rate[i] = uint16(layer >> 6 & 7)
+		registers.modulation[i] = uint16(layer >> 9 & 3)
+	}
+	return registers
 }
 
 // setFrontend is dib8000_set_frontend for a single frontend: tune the tuner,

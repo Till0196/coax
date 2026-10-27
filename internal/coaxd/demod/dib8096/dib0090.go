@@ -1138,6 +1138,31 @@ func (state *tuner) setBandwidth() {
 	state.writeReg(0x05, 0xabcd)             // = 0xabcd : attenuator_ibias_tri = 2 ; input_stage_ibias_tr = 2 ; nc = 11 ; ext_gm_trim = 1 ; obuf_ibias_trim = 4 ; filter13_gm2_ibias_t = 13
 }
 
+// captrimOnMaster runs the search on the I2C master behind the gate when it
+// can, with the waits setParams would have slept: 10*(ret+99)/100 ms.
+func (state *tuner) captrimOnMaster(lo4 uint16) {
+	bus, ok := state.bus.(tunerBus)
+	if !ok || state.failure.err != nil {
+		return
+	}
+	target := 400
+	if state.rest == 0 {
+		target = 200
+	}
+	wait := func(ret int) time.Duration { return time.Duration(10*(ret+99)/100) * time.Millisecond }
+	settleWrite, settleRead := wait(0), wait(25)
+	best, diff, ran, err := bus.captrim(state.address, lo4, state.channel.frequency/1000, int(state.captrim), int(state.step), target, settleWrite, settleRead)
+	if !ran {
+		return
+	}
+	if err != nil {
+		state.failure.record(fmt.Errorf("DiB0090 capacitor trim search: %w", err))
+		return
+	}
+	state.fcaptrim, state.adcDiff = int8(best), int16(diff)
+	state.tuneState = tunerStep3
+}
+
 // captrimSearch is dib0090_captrim_search. P1G silicon searches in hardware;
 // earlier revisions binary-search the capacitor trim against the slow ADC.
 func (state *tuner) captrimSearch() int {
@@ -1168,6 +1193,9 @@ func (state *tuner) captrimSearch() int {
 		}
 		state.adcDiff = 3000
 		state.tuneState = tunerStep0
+		if state.identity.p1g == 0 {
+			state.captrimOnMaster(lo4)
+		}
 
 	case tunerStep0:
 		if state.identity.p1g != 0 {
