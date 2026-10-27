@@ -253,7 +253,16 @@ type Demod struct {
 	demod   *dib8000
 	tuner   *tuner
 	asleep  bool
+
+	// searching is set by a tune and cleared by the first lock; tunedAt is when
+	// the last attempt ended.
+	searching bool
+	tunedAt   time.Time
 }
+
+// retuneDelay is how long after an attempt without a lock the channel is tried
+// again: dvb-core retries this chip every second, its minimum delay.
+const retuneDelay = time.Second
 
 // New addresses a DiB8096 at Address on the given bus. Nothing is sent until
 // Initialize.
@@ -396,14 +405,37 @@ func (board *Demod) Tune(frequencyHz uint32) (err error) {
 		board.asleep = false
 	}
 
-	// A DVBv5 tune from a frequency alone starts from a cleared cache.
-	board.channel.clear()
-	board.channel.frequency = frequencyHz
-
-	if err := board.demod.setFrontend(); err != nil {
+	board.searching = false
+	if err := board.setFrontend(frequencyHz); err != nil {
 		return err
 	}
+	board.searching = true
 	return board.failure.err
+}
+
+// setFrontend is one attempt at a channel: what set_frontend does, from a
+// cleared cache as a DVBv5 tune from a frequency starts.
+func (board *Demod) setFrontend(frequencyHz uint32) error {
+	board.channel.clear()
+	board.channel.frequency = frequencyHz
+	err := board.demod.setFrontend()
+	board.tunedAt = board.demod.now()
+	return err
+}
+
+// pollForLock tunes the channel again once retuneDelay has gone by without a
+// lock, as the frontend thread does, and gives the lock status.
+func (board *Demod) pollForLock(stat int) (int, error) {
+	if stat&feHasLock == 0 && board.searching && board.demod.now().Sub(board.tunedAt) >= retuneDelay {
+		if err := board.setFrontend(board.channel.frequency); err != nil {
+			return stat, err
+		}
+		stat = board.demod.readStatus()
+	}
+	if stat&feHasLock != 0 {
+		board.searching = false
+	}
+	return stat, nil
 }
 
 // setParamOverride is dib8096_set_param_override, installed as the tuner's
@@ -541,7 +573,11 @@ func (board *Demod) Status() (_ Status, err error) {
 	board.failure.err = nil
 	demod := board.demod
 
-	stat := demod.readStatus()
+	// Polled here as the frontend thread polls, so the retune happens here.
+	stat, err := board.pollForLock(demod.readStatus())
+	if err != nil {
+		return Status{}, err
+	}
 
 	var status Status
 	for _, bit := range []struct {

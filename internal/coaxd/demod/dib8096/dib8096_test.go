@@ -501,3 +501,58 @@ func TestInterpolateStrength(t *testing.T) {
 		}
 	}
 }
+
+// A search that fails is tried again a second later, as dvb-core does, and a
+// lost lock after a lock is left to the chip.
+func TestTuneRetriesAfterASecond(t *testing.T) {
+	chip := lockedChip()
+	demod, clock := newTestDemod(chip)
+	if err := demod.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	// The first search fails; the second, on the retune, succeeds. Nothing is
+	// locked until the retune has run.
+	chip.queues[1284] = []uint16{0x1, 0x0, 0x1, 0x1, 0x0, 0x2}
+	chip.queues[568] = []uint16{0, 0, 0x3ffe}
+	if err := demod.Tune(473142857); err != nil {
+		t.Fatal(err)
+	}
+	if demod.demod.status != statusTuneFailed {
+		t.Fatalf("status %d after the first search, want failed", demod.demod.status)
+	}
+
+	status, err := demod.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Locked {
+		t.Fatalf("locked before any retune: %+v", status)
+	}
+	if len(chip.queues[1284]) != 3 {
+		t.Fatalf("retuned at once: %d search answers left, want 3", len(chip.queues[1284]))
+	}
+
+	clock.Sleep(retuneDelay)
+	status, err = demod.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Locked || demod.demod.status != statusDataLocked {
+		t.Fatalf("after a second: locked %v, status %d; want the retune to have locked", status.Locked, demod.demod.status)
+	}
+
+	// Locked once, a lost lock is the chip's to recover.
+	chip.queues[568] = []uint16{0}
+	chip.registers[568] = 0
+	chip.writes = nil
+	clock.Sleep(5 * retuneDelay)
+	if status, err = demod.Status(); err != nil {
+		t.Fatal(err)
+	}
+	if status.Locked {
+		t.Fatalf("still locked with the lock register clear")
+	}
+	if _, searched := chip.lastWrite(357); searched {
+		t.Error("a channel that had locked was searched for again")
+	}
+}
