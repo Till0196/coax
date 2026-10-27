@@ -127,6 +127,9 @@ type dib8000 struct {
 	longestIntlvLayer    uint8
 	outputMode           int
 
+	// searched is set when this tune searched for the parameters.
+	searched bool
+
 	// The frontend callbacks Linux reaches through fe->ops: the tuner's
 	// set_params (the board override on a DiB8096), the tuner's
 	// get_frequency, and the board's agc_control.
@@ -289,6 +292,7 @@ func (state *dib8000) setDiversityIn(onoff int) {
 	if state.revision == 0x8002 {
 		tmp := state.readWord(903)
 		state.writeWord(903, tmp&^(1<<3))
+		// Not shorter: 5ms made tunes slower.
 		state.msleep(30)
 		state.writeWord(903, tmp|1<<3)
 	}

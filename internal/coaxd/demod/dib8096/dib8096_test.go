@@ -627,6 +627,10 @@ func TestTuneUsesRememberedParameters(t *testing.T) {
 	if _, ok := chip.kept[key]; !ok {
 		t.Fatalf("nothing kept under %d", key)
 	}
+	// The search left the demodulator synchronised; it is not restarted.
+	if n := restarts(chip.fakeChip); n != 0 {
+		t.Errorf("the demodulator was restarted %d times after the search", n)
+	}
 
 	chip.writes = nil
 	if err := demod.Tune(frequency); err != nil {

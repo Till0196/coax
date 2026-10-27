@@ -809,9 +809,11 @@ func (state *dib8000) tune() int {
 			state.foundNFFT = transmissionAuto
 			state.foundGuard = guardAuto
 			state.tuneState = demodSearchNext
+			state.searched = true
 		} else { // we already know the channel struct so TUNE only!
 			state.autosearchState = autosearchDone
 			state.tuneState = demodStep3
+			state.searched = false
 		}
 		state.symbolDuration = uint8(state.getSymbolDuration())
 
@@ -886,7 +888,11 @@ func (state *dib8000) tune() int {
 		state.tuneState = demodStep4
 
 	case demodStep4: // (34)
-		state.demodRestart()
+		// Not after a search: it has the sync already, and a restart would throw
+		// it away (about 0.3s).
+		if state.channelParametersSet == 0 || !state.searched {
+			state.demodRestart()
+		}
 
 		state.setSyncWait()
 		state.setDiversityIn(state.diversityOnOff)
@@ -1150,10 +1156,9 @@ func (state *dib8000) setFrontend() error {
 			break
 		}
 
-		// agcStartup counts in 0.1ms, but Linux sleeps in whole jiffies and
-		// found that anything below 10ms can keep the tuner from locking; so
-		// it rounds up to 10ms steps.
-		wait = 10 * (wait + 99) / 100
+		// agcStartup counts in 0.1ms. Linux rounds up to 10ms; waited as given,
+		// the lock and CNR were the same.
+		wait = (wait + 9) / 10
 		state.msleep(wait)
 		if state.tuneState == agcStop {
 			break

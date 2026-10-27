@@ -1139,7 +1139,7 @@ func (state *tuner) setBandwidth() {
 }
 
 // captrimOnMaster runs the search on the I2C master behind the gate when it
-// can, with the waits setParams would have slept: 10*(ret+99)/100 ms.
+// can. Linux waits 9 and 12ms; 3 and 4ms gave the same trims, 0 and 2.5 did not.
 func (state *tuner) captrimOnMaster(lo4 uint16) {
 	bus, ok := state.bus.(tunerBus)
 	if !ok || state.failure.err != nil {
@@ -1149,8 +1149,10 @@ func (state *tuner) captrimOnMaster(lo4 uint16) {
 	if state.rest == 0 {
 		target = 200
 	}
-	wait := func(ret int) time.Duration { return time.Duration(10*(ret+99)/100) * time.Millisecond }
-	settleWrite, settleRead := wait(0), wait(25)
+	const (
+		settleWrite = 3 * time.Millisecond
+		settleRead  = 4 * time.Millisecond
+	)
 	best, diff, ran, err := bus.captrim(state.address, lo4, state.channel.frequency/1000, int(state.captrim), int(state.step), target, settleWrite, settleRead)
 	if !ran {
 		return
