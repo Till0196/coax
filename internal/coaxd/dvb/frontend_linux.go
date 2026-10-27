@@ -137,6 +137,17 @@ func OpenFrontend(path string) (*Frontend, error) {
 	return &Frontend{file: f}, nil
 }
 
+// OpenFrontendReadOnly opens a frontend only to ask it questions. Only one
+// opener may write to a frontend, but readers are not limited, so this does not
+// keep a tuner from being opened to tune, and works while one is.
+func OpenFrontendReadOnly(path string) (*Frontend, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	return &Frontend{file: f}, nil
+}
+
 func (f *Frontend) Close() error {
 	return f.file.Close()
 }

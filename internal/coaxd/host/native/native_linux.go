@@ -119,11 +119,12 @@ func detectDVB() ([]pool.Detected, error) {
 // remembered holds what each frontend last said about itself.
 var remembered sync.Map // path -> dvb.Info
 
-// describe asks a frontend what it is and lets go at once. One in use cannot be
-// opened, so what it said last time serves: it describes hardware, which does
-// not change while the device stays where it is.
+// describe asks a frontend what it is and lets go at once. It opens it only to
+// read, so a tuner being opened to tune at the same moment is not turned away.
+// Should it not open, what it said last time serves: it describes hardware,
+// which does not change while the device stays where it is.
 func describe(path string) (dvb.Info, bool) {
-	frontend, err := dvb.OpenFrontend(path)
+	frontend, err := dvb.OpenFrontendReadOnly(path)
 	if err != nil {
 		known, ok := remembered.Load(path)
 		if !ok {
