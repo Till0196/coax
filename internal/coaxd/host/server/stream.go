@@ -108,6 +108,10 @@ func (s *Server) handleStream(writer http.ResponseWriter, request *http.Request)
 		return
 	}
 	defer stream.Close()
+	// The tuner goes back at a mid-stream hang-up, so the next channel's request
+	// is not told busy. Stopped on return: a stream that ended at its bound keeps it.
+	stopRelease := context.AfterFunc(request.Context(), lease.Release)
+	defer stopRelease()
 
 	// Nothing has been written yet: a response that has begun cannot be turned
 	// into an error, so this is the last moment the check can run.

@@ -29,6 +29,9 @@ type slowBoard struct {
 	opens  atomic.Int64
 	mutex  sync.Mutex
 	taken  map[int]bool
+
+	// streamDelay is how long a stream takes to stop, when it takes any time.
+	streamDelay time.Duration
 }
 
 func (b *slowBoard) Name() string               { return "slow" }
@@ -54,10 +57,28 @@ type slowDevice struct {
 	index int
 }
 
-func (d *slowDevice) Name() string                       { return "slow tuner" }
-func (d *slowDevice) Supports(string) bool               { return true }
-func (d *slowDevice) Tune(map[string]string) error       { return nil }
-func (d *slowDevice) OpenStream() (device.Stream, error) { return &fakeStream{}, nil }
+func (d *slowDevice) Name() string                 { return "slow tuner" }
+func (d *slowDevice) Supports(string) bool         { return true }
+func (d *slowDevice) Tune(map[string]string) error { return nil }
+func (d *slowDevice) OpenStream() (device.Stream, error) {
+	if d.board.streamDelay > 0 {
+		return &slowStream{delay: d.board.streamDelay}, nil
+	}
+	return &fakeStream{}, nil
+}
+
+// slowStream is a stream whose end takes a moment, as stopping an endpoint
+// and parking a demodulator's output do.
+type slowStream struct {
+	fakeStream
+	delay time.Duration
+}
+
+func (s *slowStream) Close() error {
+	time.Sleep(s.delay)
+	return s.fakeStream.Close()
+}
+
 func (d *slowDevice) Status() (device.Status, error) {
 	return device.Status{Locked: true, Names: device.LockNames,
 		CNR: device.Measured(28.5), Strength: device.Measured(-42)}, nil
@@ -181,6 +202,33 @@ func TestAScanKeepsItsTunerFromChannelToChannel(t *testing.T) {
 	}
 	if opens := board.opens.Load(); opens != 1 {
 		t.Errorf("the tuner was opened %d times, want 1", opens)
+	}
+}
+
+// TestAViewerChangingChannelIsNotToldBusy hangs up a stream and asks for the
+// next channel on a new connection at once.
+func TestAViewerChangingChannelIsNotToldBusy(t *testing.T) {
+	listener, board := newSlowServer(t, closeDelay)
+	board.streamDelay = 30 * time.Millisecond
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
+	for channel := 0; channel < 10; channel++ {
+		query := "system=ISDBT&freq=" + itoa(473_142_857+channel*6_000_000)
+		response, err := client.Get(listener.URL + "/stream?" + query)
+		if err != nil {
+			t.Fatalf("channel %d: GET /stream: %v", channel, err)
+		}
+		if response.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(response.Body)
+			response.Body.Close()
+			t.Fatalf("channel %d: /stream answered %d: %s", channel, response.StatusCode, compact(body))
+		}
+		watched := make([]byte, 188*64)
+		if _, err := io.ReadFull(response.Body, watched); err != nil {
+			t.Fatalf("channel %d: reading the stream: %v", channel, err)
+		}
+		// Hanging up is how a player lets go of the channel.
+		response.Body.Close()
 	}
 }
 
