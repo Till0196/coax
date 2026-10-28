@@ -30,6 +30,9 @@ type ring struct {
 
 	// block is the next block to be handed on.
 	block int
+	// skip is how many of the blocks still to come are dropped rather than
+	// handed on. See startBlocks.
+	skip int
 	// overruns counts the times the card came all the way round unwatched,
 	// which means data was lost.
 	overruns int
@@ -118,6 +121,7 @@ func (r *ring) arm() error {
 		r.data.Bytes[block*blockSize] = sentinel
 	}
 	r.block = 0
+	r.skip = startBlocks
 
 	base := r.descriptors.Pages[0].Physical
 	if err := r.write(regDescriptorLow, uint32(base)); err != nil {
@@ -172,7 +176,11 @@ func (r *ring) collect(hand func([]byte)) {
 		if r.data.Bytes[next*blockSize] == sentinel {
 			break
 		}
-		hand(r.data.Bytes[r.block*blockSize : (r.block+1)*blockSize])
+		if r.skip > 0 {
+			r.skip--
+		} else {
+			hand(r.data.Bytes[r.block*blockSize : (r.block+1)*blockSize])
+		}
 		r.data.Bytes[r.block*blockSize] = sentinel
 		r.block = next
 		ready++

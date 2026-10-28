@@ -153,6 +153,11 @@ const (
 	// mistaken for data: a block begins with a packet, and a packet begins 0x47.
 	sentinel = 0x74
 
+	// startBlocks is how many blocks after the card starts are not handed on.
+	// What it writes first is still what the demodulator produced before the
+	// transfer began, packets flagged with transport errors among it.
+	startBlocks = 4
+
 	// descriptorSize is one ring entry: where the transfer goes, how much of it,
 	// and where the next entry is.
 	descriptorSize = 20
