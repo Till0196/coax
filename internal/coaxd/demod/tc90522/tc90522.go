@@ -304,8 +304,10 @@ func (demod *Demod) EnableTSPinsT(enable bool) error {
 	return demod.WriteRegister(0x1d, value)
 }
 
-// LockedT reports whether the terrestrial core reached lock. Both the
-// synchronisation flag and the Viterbi lock count have to agree.
+// LockedT reports whether the terrestrial core reached lock. The lock flag,
+// the synchronisation flag and the Viterbi lock count all have to agree: the
+// last two come up first, while the packets the core puts out still carry
+// transport errors.
 func (demod *Demod) LockedT() (bool, error) {
 	demod.mu.Lock()
 	defer demod.mu.Unlock()
@@ -313,7 +315,7 @@ func (demod *Demod) LockedT() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if sync[0]&0x28 != 0 {
+	if sync[0]&0x2a != 0 {
 		return false, nil
 	}
 	viterbi, err := demod.readRegisters(0xb0, 1)
