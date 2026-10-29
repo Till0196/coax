@@ -215,23 +215,48 @@ var standbyBlocks = []uint32{
 	0xe70000, 0xc70000, 0xd00000, 0x1600000, core1Base,
 }
 
-// clocksLocked sets the clock, reset and SDRAM registers.
+// clocksLocked sets the clock, reset and SDRAM registers. One that holds its
+// value already, as an earlier Start leaves it while the chip stays powered, is
+// not written again.
 func (bridge *Bridge) clocksLocked() {
 	clock, memory := regs.Clock, regs.Memory
-	bridge.write16(clock.PLL.Addr(), 0x8201)
-	bridge.write16(clock.Unk114.Addr(), 0x8008)
-	bridge.write16(clock.Gates.Addr(), 0xffff)
+	held := map[uint32]uint32{}
+	readRun := func(first, last uint32) {
+		data := make([]byte, last+4-first)
+		bridge.readBlock(first, data)
+		for at := uint32(0); at < uint32(len(data)); at += 4 {
+			held[first+at] = binary.BigEndian.Uint32(data[at:])
+		}
+	}
+	readRun(clock.PLL.Addr(), clock.Unk12C.Addr())
+	readRun(memory.Format2[1].Addr(), memory.Format2[1].Addr())
+	readRun(memory.Planes2[2].Chroma[0].Addr(), memory.Planes2[4].Chroma[1].Addr())
+	set16 := func(address uint32, data uint16) {
+		word, ok := held[address]
+		if !ok {
+			word = bridge.read32(address)
+		}
+		if uint16(word>>16) != data {
+			bridge.write32(address, uint32(data)<<16|word&0xffff)
+		}
+	}
+	set16(clock.PLL.Addr(), 0x8201)
+	set16(clock.Unk114.Addr(), 0x8008)
+	set16(clock.Gates.Addr(), 0xffff)
 	// Bit 2 of each engine block's standby register (16 bits, in the
 	// high half of the word, for the clusters and the audio blocks).
 	for _, base := range standbyBlocks {
-		bridge.set32(regs.ClusterAt(base).StandbyMode.Addr(), regs.ClusterStandbyWait<<16)
+		address := regs.ClusterAt(base).StandbyMode.Addr()
+		if word := bridge.read32(address); word&(regs.ClusterStandbyWait<<16) == 0 {
+			bridge.write32(address, word|regs.ClusterStandbyWait<<16)
+		}
 	}
-	bridge.write16(clock.Unk11C.Addr(), 6)
-	bridge.write16(clock.Unk128.Addr(), 0x6000)
-	bridge.write16(clock.Unk12C.Addr(), 0x4007)
-	bridge.write16(memory.Format2[1].Addr(), 3)
+	set16(clock.Unk11C.Addr(), 6)
+	set16(clock.Unk128.Addr(), 0x6000)
+	set16(clock.Unk12C.Addr(), 0x4007)
+	set16(memory.Format2[1].Addr(), 3)
 	for _, reg := range []regs.Reg{memory.Planes2[2].Chroma[0], memory.Planes2[2].Chroma[1], memory.Planes2[4].Chroma[0], memory.Planes2[4].Chroma[1]} {
-		bridge.write16(reg.Addr(), 0x0880)
+		set16(reg.Addr(), 0x0880)
 	}
 }
 
@@ -264,29 +289,34 @@ var (
 
 func (bridge *Bridge) trapInterruptsLocked() {
 	// ICR00-ICR63: level 31 masks a source.
+	levels := make([]byte, 0x40)
+	bridge.readBlock(interruptLevels, levels)
 	for offset := uint32(0); offset < 0x40; offset += 4 {
-		word := bridge.read32(interruptLevels + offset)
+		word := binary.BigEndian.Uint32(levels[offset:])
 		if word|0x1f1f1f1f != word {
 			bridge.write32(interruptLevels+offset, word|0x1f1f1f1f)
 		}
 	}
-	for i, word := range trapRecorder {
-		bridge.write32(trapCommon+uint32(i)*4, word)
+	bridge.writeWords(trapCommon, trapRecorder)
+	bridge.writeWords(trapStubs, trapStubCode)
+	// Vectors 16-19 are the USB lines the power-up code serves.
+	stub := func(vector int) uint32 { return trapStubs + uint32(vector)*trapStubStride }
+	for _, run := range [][2]int{{firstFreeVector, 255}, {1, 15}} {
+		words := make([]uint32, 0, run[1]-run[0]+1)
+		for vector := run[1]; vector >= run[0]; vector-- {
+			words = append(words, stub(vector))
+		}
+		bridge.writeWords(vectorTable+0x3fc-4*uint32(run[1]), words)
 	}
-	stubs := trapStubCode
-	data := make([]byte, 0, len(stubs)*4)
-	for _, word := range stubs {
+}
+
+func (bridge *Bridge) writeWords(address uint32, words []uint32) {
+	data := make([]byte, 0, len(words)*4)
+	for _, word := range words {
 		data = binary.BigEndian.AppendUint32(data, word)
 	}
 	for offset := 0; offset < len(data) && bridge.err == nil; offset += writeLimit {
-		bridge.writeBlock(trapStubs+uint32(offset), data[offset:min(offset+writeLimit, len(data))])
-	}
-	for vector := 1; vector < 256; vector++ {
-		if vector >= 16 && vector < firstFreeVector {
-			continue
-		}
-		address := vectorTable + 0x3fc - 4*uint32(vector)
-		bridge.write32(address, trapStubs+uint32(vector)*trapStubStride)
+		bridge.writeBlock(address+uint32(offset), data[offset:min(offset+writeLimit, len(data))])
 	}
 }
 
@@ -310,13 +340,23 @@ func (bridge *Bridge) ResetDemodulator() error {
 // loadLocked holds the engine core at base in reset and loads program at
 // origin. The core's reset vector is the last word of its instruction RAM
 // (base+0xFFFFC), which holds nothing at power-up; without it a reset release
-// does not start the core. The program goes sixteen words to a request, and
-// only where it differs from what is read back: what an earlier Start or
-// stream left there is usually the program itself, and a request takes
-// milliseconds on some hosts.
+// does not start the core.
+//
+// The chip keeps its RAM while it is powered, so what an earlier Start or
+// stream loaded is usually there still, and a request takes milliseconds on
+// some hosts. A program noted at loadedSignature is not loaded again, and
+// otherwise only what differs from what is read back is written.
 func (bridge *Bridge) loadLocked(base, origin uint32, program []uint32) {
 	bridge.write32(base+0xffffc, origin)
 	bridge.write32(base, 0xffffffff)
+	signature := signatureOf(origin, program)
+	noted := make([]byte, 8)
+	bridge.readBlock(base+loadedSignature, noted)
+	if bridge.err == nil && binary.BigEndian.Uint32(noted) == signatureMagic && binary.BigEndian.Uint32(noted[4:]) == signature {
+		return
+	}
+	// Unnoted while it changes, so a load cut short is not taken for done.
+	bridge.write32(base+loadedSignature, 0)
 	loaded := make([]byte, 64)
 	for first := 0; first < len(program); first += len(loaded) / 4 {
 		words := program[first:min(first+len(loaded)/4, len(program))]
@@ -333,6 +373,28 @@ func (bridge *Bridge) loadLocked(base, origin uint32, program []uint32) {
 			}
 		}
 	}
+	if bridge.err == nil {
+		bridge.writeWords(base+loadedSignature, []uint32{signatureMagic, signature})
+	}
+}
+
+// loadedSignature is where loadLocked notes the program a core holds, in its
+// data RAM: above its stack, which starts at 0xA37FC and runs down, and below
+// its variables. signatureMagic marks the note as one.
+const (
+	loadedSignature = 0xa3800
+	signatureMagic  = 0x10ad5160
+)
+
+func signatureOf(origin uint32, program []uint32) uint32 {
+	hash := uint32(2166136261)
+	for _, word := range append([]uint32{origin}, program...) {
+		for shift := 24; shift >= 0; shift -= 8 {
+			hash ^= word >> shift & 0xff
+			hash *= 16777619
+		}
+	}
+	return hash
 }
 
 // mustBuild builds a program of our own, which cannot fail but through a

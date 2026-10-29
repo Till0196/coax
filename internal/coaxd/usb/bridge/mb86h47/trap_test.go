@@ -4,6 +4,7 @@
 package mb86h47
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/Till0196/coax/pkg/fr30"
@@ -101,6 +102,63 @@ func TestTrapRecorder(t *testing.T) {
 		want := [7]uint32{0x7ea9, uint32(vector), 0x45670, 0x10 | 0x1f<<16 | 0x5, 0x12344, 0x7eff8, 1}
 		if records[1] != want {
 			t.Fatalf("vector %d: record %#x, want %#x", vector, records[1], want)
+		}
+	}
+}
+
+// memoryChip is chip memory a word at a time, read and written in blocks as the
+// memory request carries them.
+type memoryChip struct{ words map[uint32]uint32 }
+
+func (chip *memoryChip) Control(requestType, _ byte, value, index uint16, buffer []byte, _ uint32) (int, error) {
+	address := uint32(value&0xff)<<24 | uint32(value&0xff00)<<8 | uint32(index)
+	for at := 0; at+4 <= len(buffer); at += 4 {
+		if requestType == vendorOut {
+			chip.words[address+uint32(at)] = binary.BigEndian.Uint32(buffer[at:])
+		} else {
+			binary.BigEndian.PutUint32(buffer[at:], chip.words[address+uint32(at)])
+		}
+	}
+	return len(buffer), nil
+}
+
+func (chip *memoryChip) Bulk(byte, []byte, uint32) (int, error) { return 0, nil }
+
+func TestTrapInterruptsSetsTheTable(t *testing.T) {
+	chip := &memoryChip{words: map[uint32]uint32{}}
+	vector := func(n int) uint32 { return vectorTable + 0x3fc - 4*uint32(n) }
+	kept := map[int]uint32{0: 0x11110000, 16: 0x16161616, 17: 0x17171717, 18: 0x18181818, 19: 0x19191919}
+	for n, word := range kept {
+		chip.words[vector(n)] = word
+	}
+	chip.words[interruptLevels+8] = 0x01020304
+	bridge := &Bridge{device: chip}
+	bridge.trapInterruptsLocked()
+	if bridge.err != nil {
+		t.Fatal(bridge.err)
+	}
+	for n := 0; n < 256; n++ {
+		want, ok := kept[n]
+		if !ok {
+			want = trapStubs + uint32(n)*trapStubStride
+		}
+		if got := chip.words[vector(n)]; got != want {
+			t.Errorf("vector %d: %#x, want %#x", n, got, want)
+		}
+	}
+	for offset := uint32(0); offset < 0x40; offset += 4 {
+		if got := chip.words[interruptLevels+offset]; got|0x1f1f1f1f != got {
+			t.Errorf("ICR word %#x: %#x, not masked", offset, got)
+		}
+	}
+	for i, word := range trapRecorder {
+		if chip.words[trapCommon+uint32(i)*4] != word {
+			t.Fatalf("recorder word %d not written", i)
+		}
+	}
+	for i, word := range trapStubCode {
+		if chip.words[trapStubs+uint32(i)*4] != word {
+			t.Fatalf("stub word %d not written", i)
 		}
 	}
 }
