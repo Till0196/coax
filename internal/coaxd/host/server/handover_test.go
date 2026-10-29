@@ -32,6 +32,10 @@ type slowBoard struct {
 
 	// streamDelay is how long a stream takes to stop, when it takes any time.
 	streamDelay time.Duration
+
+	// closing reports when release has reached the tuner handle. At this point
+	// the pool has registered the handover, but Close has not finished yet.
+	closing chan struct{}
 }
 
 func (b *slowBoard) Name() string               { return "slow" }
@@ -85,6 +89,9 @@ func (d *slowDevice) Status() (device.Status, error) {
 }
 
 func (d *slowDevice) Close() error {
+	if d.board.closing != nil {
+		d.board.closing <- struct{}{}
+	}
 	time.Sleep(d.board.delay)
 	d.board.mutex.Lock()
 	defer d.board.mutex.Unlock()
@@ -206,11 +213,15 @@ func TestAScanKeepsItsTunerFromChannelToChannel(t *testing.T) {
 }
 
 // TestAViewerChangingChannelIsNotToldBusy hangs up a stream and asks for the
-// next channel on a new connection at once.
+// next channel on a new connection while the previous tuner is being released.
 func TestAViewerChangingChannelIsNotToldBusy(t *testing.T) {
 	listener, board := newSlowServer(t, closeDelay)
 	board.streamDelay = 30 * time.Millisecond
-	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	board.closing = make(chan struct{}, 1)
+	client := &http.Client{
+		Transport: &http.Transport{DisableKeepAlives: true},
+		Timeout:   5 * time.Second,
+	}
 
 	for channel := 0; channel < 10; channel++ {
 		query := "system=ISDBT&freq=" + itoa(473_142_857+channel*6_000_000)
@@ -229,6 +240,14 @@ func TestAViewerChangingChannelIsNotToldBusy(t *testing.T) {
 		}
 		// Hanging up is how a player lets go of the channel.
 		response.Body.Close()
+		// Closing the client socket does not mean the server has seen the
+		// disconnect yet. Ask again once release has begun, without waiting for
+		// the slow handle close to finish: that is the handover the pool waits for.
+		select {
+		case <-board.closing:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("channel %d: the disconnected viewer did not release its tuner", channel)
+		}
 	}
 }
 
