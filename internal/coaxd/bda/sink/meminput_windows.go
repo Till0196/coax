@@ -57,17 +57,7 @@ func memReceive(this, pSample uintptr) uintptr {
 		return hrOK
 	}
 	data := unsafe.Slice(buffer, int(length))
-	if !pin.synced {
-		offset := syncOffset(data)
-		if offset < 0 {
-			// Nothing here looks like a transport packet yet, which is what
-			// an unlocked tuner delivers. Waiting costs one frame; writing
-			// it would put the reader out of step for the whole recording.
-			return hrOK
-		}
-		data = data[offset:]
-		pin.synced = true
-	}
+
 	written, err := pin.out.Write(data)
 	pin.written += int64(written)
 	if err != nil {
@@ -93,6 +83,6 @@ func memReceiveMultiple(this, pSamples, nSamples, nSamplesProcessed uintptr) uin
 	return result
 }
 
-// memReceiveCanBlock answers S_FALSE: a write to the capture file is not
-// something the upstream pin has to assume will stall.
+// memReceiveCanBlock answers S_FALSE: the capture pipe copies into a
+// bounded buffer and never waits for the reader.
 func memReceiveCanBlock(this uintptr) uintptr { return hrFalse }

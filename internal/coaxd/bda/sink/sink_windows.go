@@ -55,31 +55,7 @@ type sinkPin struct {
 	mu      sync.Mutex
 	out     io.Writer
 	written int64
-	synced  bool
 	failure error
-}
-
-// tsPacketBytes is the transport packet length everything here counts in.
-const tsPacketBytes = 188
-
-// syncOffset finds where the first whole transport packet starts, or -1. The
-// driver's first frame starts wherever the DMA ring happened to be; every later
-// frame is an exact multiple of the packet length, so trimming the first is all
-// the alignment this stream needs.
-func syncOffset(data []byte) int {
-	limit := len(data) - 4*tsPacketBytes
-	if limit > tsPacketBytes {
-		limit = tsPacketBytes
-	}
-	for offset := 0; offset < limit; offset++ {
-		if data[offset] == 0x47 &&
-			data[offset+tsPacketBytes] == 0x47 &&
-			data[offset+2*tsPacketBytes] == 0x47 &&
-			data[offset+4*tsPacketBytes] == 0x47 {
-			return offset
-		}
-	}
-	return -1
 }
 
 type sinkEnum struct {
@@ -155,14 +131,12 @@ func (sink *Sink) WriteError() error {
 	return sink.pin.failure
 }
 
-// Attach points the sink at another file, so a graph can go on running while
-// what it writes to is replaced. The alignment search starts again: the new
-// file has to begin at a packet boundary as the first one did.
+// Attach replaces the byte destination while the graph keeps running. Packet
+// boundaries and format detection belong to the reader, not the capture callback.
 func (sink *Sink) Attach(out io.Writer) {
 	sink.pin.mu.Lock()
 	defer sink.pin.mu.Unlock()
 	sink.pin.out = out
-	sink.pin.synced = false
 }
 
 // Detach stops the sink writing, so whatever is behind it can be closed while

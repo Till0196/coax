@@ -152,7 +152,7 @@ func pinQueryId(this, id uintptr) uintptr {
 }
 
 // pinQueryAccept takes every media type: whatever the connection calls it, what
-// arrives is a transport stream written out untouched.
+// arrives is a byte stream written out untouched, including native TLV.
 func pinQueryAccept(this, pmt uintptr) uintptr { return hrOK }
 
 func pinEnumMediaTypes(this, ppEnum uintptr) uintptr { return hrNotImpl }

@@ -77,9 +77,9 @@ func TestCarriersAreBuildable(t *testing.T) {
 					card.match, mode, delivery, err)
 				continue
 			}
-			if system != state.systems[0] {
-				t.Errorf("%s mode %d carrier is %s but the mode's own standard is %s",
-					card.match, mode, system, state.systems[0])
+			if !slices.Contains(state.systems, system) {
+				t.Errorf("%s mode %d carrier is %s but the mode supports %v",
+					card.match, mode, system, state.systems)
 			}
 		}
 	}
@@ -724,6 +724,33 @@ func TestQuattroCardsLeaveTheSupplyAlone(t *testing.T) {
 		}
 		if card.quattroFed != want {
 			t.Errorf("%s quattroFed = %v, want %v", name, card.quattroFed, want)
+		}
+	}
+}
+
+func TestOnlyStandaloneTerrestrialSonyCardsSkipTheVendorChannel(t *testing.T) {
+	for _, name := range []string{"TBS 6812", "TBS 6522H", "TBS 6504H", "TBS 6590SE", "TBS 6909SE", "TBS 6902", "TBS 6903", "TBS 6903X", "TBS 6504", "TBS 6508", "TBS 6522", "TBS 6904X", "TBS 6590", "TBS 6528", "TBS 6909"} {
+		card, ok := modelFor(name + " Tuner 0")
+		if !ok {
+			t.Fatalf("missing %s", name)
+		}
+		if card.untunedTransport() {
+			t.Fatalf("%s lost its firmware/input preparation channel", name)
+		}
+	}
+	card, _ := modelFor("TBS 6205se Tuner 0")
+	if !card.untunedTransport() {
+		t.Fatal("6205se queues a competing vendor tune")
+	}
+}
+
+func TestSatellitePreparationDoesNotAdvertiseAnUnpoweredTune(t *testing.T) {
+	for _, card := range models {
+		for slot := 0; slot < 16; slot++ {
+			control := card.supplyFor(slot, card.deliveriesFor(slot))
+			if control != nil && control.Off {
+				t.Errorf("%s slot %d advertises off despite its vendor preparation channel", card.match, slot)
+			}
 		}
 	}
 }

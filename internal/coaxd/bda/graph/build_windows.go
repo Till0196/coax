@@ -8,6 +8,7 @@ package graph
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/Till0196/coax/pkg/win32"
@@ -46,9 +47,6 @@ type Options struct {
 	Captures []filters.Moniker
 	// Profile is the channel the graph is built against.
 	Profile tuning.TuneProfile
-	// Limit bounds what the graph may write before anything reads it. Zero is
-	// unbounded. See Spool.
-	Limit int64
 	// Card is the card the tuner is on, held while the graph runs so a mode
 	// switch elsewhere cannot restart it mid-stream. See the cards package.
 	Card string
@@ -157,16 +155,11 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	// Our own sink filter, not the stock Microsoft file writer: that one cannot
 	// run on a clockless graph, rejecting the first untimed sample with
 	// VFW_E_SAMPLE_TIME_NOT_SET while IMediaControl goes on answering "running".
-	spool, err := NewSpool(options.Limit)
-	if err != nil {
-		return nil, fmt.Errorf("create BDA capture file: %w", err)
-	}
-	stream := sink.New(spool)
+	stream := sink.New(io.Discard)
 	defer func() {
 		if !success {
 			stream.Detach()
 			stream.Release()
-			_ = spool.Remove()
 		}
 	}()
 	writer := stream.Filter()
@@ -200,7 +193,7 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 		capture, captureFilter = chosen, filter
 	}
 	if err := connectFilters(graph, tee, writer); err != nil {
-		return nil, fmt.Errorf("connect the capture file: %w", err)
+		return nil, fmt.Errorf("connect the capture pipe: %w", err)
 	}
 
 	// A graph with no transport information filter can build and then refuse to
@@ -266,7 +259,6 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 		statistics:    statistics,
 		tuner:         tunerFilter,
 		writer:        stream,
-		spool:         spool,
 		capture:       capture,
 		captureFilter: captureFilter,
 	}, nil

@@ -14,6 +14,7 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/device"
 	"github.com/Till0196/coax/internal/coaxd/host/hostapi"
 	"github.com/Till0196/coax/internal/coaxd/receiver"
+	"github.com/Till0196/coax/pkg/mmttlv"
 )
 
 // readSize is one read's size, chosen to keep up with a whole multiplex rather
@@ -177,7 +178,7 @@ func probeSync(ctx context.Context, stream device.Stream, parsed hostapi.Request
 		if read > 0 {
 			prefix = append(prefix, buffer[:read]...)
 			if analysis.Synced() {
-				return prefix, nil
+				return alignedPrefix(prefix, analysis.StreamCounts().Format), nil
 			}
 			continue
 		}
@@ -194,7 +195,7 @@ func probeSync(ctx context.Context, stream device.Stream, parsed hostapi.Request
 		}
 	}
 	if analysis.Synced() {
-		return prefix, nil
+		return alignedPrefix(prefix, analysis.StreamCounts().Format), nil
 	}
 	counts := analysis.StreamCounts()
 	if counts.Bytes == 0 {
@@ -212,6 +213,23 @@ func probeSync(ctx context.Context, stream device.Stream, parsed hostapi.Request
 				"lnb_power=high. Pass sync=off to take the bytes anyway",
 			counts.Bytes),
 	}
+}
+
+// alignedPrefix trims only the acquisition tail before the detected framing.
+// It runs after format detection, so capture callbacks need no packet assumptions.
+func alignedPrefix(data []byte, format string) []byte {
+	if format == "tlv" {
+		if at, ok := mmttlv.FindSync(data); ok {
+			return data[at:]
+		}
+	} else if format == "ts" {
+		for at := 0; at+3*188 < len(data); at++ {
+			if data[at] == 0x47 && data[at+188] == 0x47 && data[at+2*188] == 0x47 && data[at+3*188] == 0x47 {
+				return data[at:]
+			}
+		}
+	}
+	return data
 }
 
 // bounds is how much of a stream was asked for; a zero bound is no bound. The

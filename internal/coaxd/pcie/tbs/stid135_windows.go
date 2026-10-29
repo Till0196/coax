@@ -128,3 +128,7 @@ func (satellite *stid135Demod) SetVoltage(high, off bool) error {
 }
 
 func (satellite *stid135Demod) SetTone(on bool) error { return satellite.demod.SetTone(on) }
+
+func (satellite *stid135Demod) SendDiSEqC(message []byte) error {
+	return satellite.demod.SendDiSEqC(message)
+}

@@ -14,6 +14,7 @@ package graph
 
 import (
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -112,30 +113,25 @@ func (session *Session) Progress() (written int64, warmedUp bool) {
 	return written, warmedUp
 }
 
-// Written is how much the sink has taken since the graph came up, across every
-// file it has written to. It is what says whether the card is still carrying a
-// stream, which a graph's own state does not.
+// Written counts bytes delivered since the graph came up, including idle
+// capture. It says whether the card is carrying data, unlike the graph state.
 func (session *Session) Written() int64 { return session.writer.BytesWritten() }
 
-// Recapture points the graph at a new spool and drops the old one, while it
-// goes on running. It is what lets one graph serve a run of channels.
-//
-// limit bounds what the new spool may take, for the stretches when nothing is
-// reading it -- a graph is kept up between channels, and a card carrying 39
-// Mbps into files nobody reads fills a disk. Zero is unbounded. What the sink
-// counts is unaffected either way.
-func (session *Session) Recapture(limit int64) error {
-	spool, err := NewSpool(limit)
-	if err != nil {
-		return err
+// Recapture swaps the byte destination while the graph keeps running. Idle
+// graphs count arriving bytes in the sink but need not retain their contents.
+func (session *Session) Recapture(capture bool) {
+	var spool *Spool
+	var out io.Writer = io.Discard
+	if capture {
+		spool = new(Spool)
+		out = spool
 	}
-	session.writer.Attach(spool)
+	session.writer.Attach(out)
 	old := session.spool
 	session.spool = spool
 	if old != nil {
-		_ = old.Remove()
+		_ = old.Close()
 	}
-	return nil
 }
 
 // The graph events that mean it has given up. DirectShow reports them here and
@@ -194,8 +190,8 @@ func (session *Session) Close() {
 		session.control.Release()
 		session.control = nil
 	}
-	// The sink stops writing before the file closes, so a sample in flight during
-	// teardown cannot reach a closed file.
+	// The sink detaches before the buffer is released, so a sample in flight
+	// during teardown cannot write into the old pipe.
 	if session.writer != nil {
 		session.writer.Detach()
 	}
@@ -230,7 +226,7 @@ func (session *Session) Close() {
 		session.writer = nil
 	}
 	if session.spool != nil {
-		_ = session.spool.Remove()
+		_ = session.spool.Close()
 	}
 }
 

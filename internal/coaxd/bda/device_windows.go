@@ -9,9 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"runtime"
+	"sync"
 
 	"github.com/Till0196/coax/pkg/win32"
 	"github.com/Till0196/coax/pkg/win32/directshow"
@@ -48,7 +47,7 @@ type Device struct {
 	streamingTuner *directshow.IBaseFilter
 	// live is the stream the graph is writing for at the moment. A stream that is
 	// closed after the next one has already opened must not put the graph back to
-	// idle: the reader would then sit on a file nothing writes to.
+	// idle: the reader would then sit on a pipe nothing writes to.
 	live *Stream
 }
 
@@ -71,9 +70,8 @@ type Status struct {
 }
 
 type Stream struct {
-	// file is the one of the spool's files being read, and path its name.
-	file  *os.File
-	path  string
+	// Reads run outside the COM thread; closing it may replace the session.
+	mutex sync.Mutex
 	spool *graph.Spool
 	// device is the tuner this came from, so closing the stream can tell it the
 	// graph is no longer carrying anything -- nothing else signals when a backend
@@ -83,7 +81,7 @@ type Stream struct {
 	// empties eventually stops the graph, and a stream is the one stretch where
 	// nothing else asks the device anything.
 	drained time.Time
-	// session is the running graph feeding the file, owned by the stream: the
+	// session is the running graph feeding the pipe, owned by the stream: the
 	// stream is read while it is still arriving, so the graph must outlive it.
 	session *graph.Session
 }
@@ -126,6 +124,16 @@ func Open(selector string) (*Device, error) {
 func (device *Device) Name() string { return device.name }
 
 func (device *Device) Tune(properties map[string]string) error {
+	return device.tune(properties, false)
+}
+
+// TuneUntuned selects the channel's mode and builds its network type without
+// handing the driver a channel. The caller drives the chips itself.
+func (device *Device) TuneUntuned(properties map[string]string) error {
+	return device.tune(properties, true)
+}
+
+func (device *Device) tune(properties map[string]string, untuned bool) error {
 	profile, err := BuildTuneProfile(properties)
 	if err != nil {
 		return err
@@ -139,7 +147,7 @@ func (device *Device) Tune(properties map[string]string) error {
 		return err
 	}
 	device.mode = settled
-	return device.startGraph(profile, false)
+	return device.startGraph(profile, untuned)
 }
 
 // StartTransport brings the capture graph up and leaves the card's mode alone,
@@ -167,7 +175,6 @@ func (device *Device) startGraph(profile TuneProfile, untuned bool) error {
 		Tuner:    device.tuner,
 		Captures: device.captures,
 		Profile:  profile,
-		Limit:    idleCaptureBytes,
 		Card:     device.card,
 		Untuned:  untuned,
 	})
@@ -242,21 +249,14 @@ func (device *Device) OpenStream() (*Stream, error) {
 		return nil, fmt.Errorf("BDA device is not tuned")
 	}
 	session := device.session
-	// A file of its own for this stream, taking nothing from what came before it.
+	// A fresh pipe for this stream, taking nothing from what came before it.
 	// The graph has been running since the tune, and the vendor driver tunes its
 	// own way as it brings the graph up -- so what it has written so far is the
 	// card acquiring the channel, or whatever carrier the vendor aimed at first.
 	// Handing that back as this channel's is what a scan reads as one channel's
 	// stream reported under another's name.
-	if err := session.Recapture(0); err != nil {
-		return nil, err
-	}
+	session.Recapture(true)
 	spool := session.Spool()
-	path := spool.First()
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
 	// The device keeps the session. A graph is what costs a tune here -- the
 	// vendor driver tunes its own way as it builds one -- so it is kept standing
 	// for the next channel. The stream still names the session it is reading,
@@ -270,8 +270,6 @@ func (device *Device) OpenStream() (*Stream, error) {
 		device.streamingTuner.AddRef()
 	}
 	stream := &Stream{
-		file:    file,
-		path:    path,
 		spool:   spool,
 		session: session,
 		device:  device,
@@ -280,13 +278,6 @@ func (device *Device) OpenStream() (*Stream, error) {
 	device.live = stream
 	return stream, nil
 }
-
-// RemoveLeftovers deletes the capture files a run that was killed left behind.
-func RemoveLeftovers() { graph.RemoveLeftovers() }
-
-// idleCaptureBytes is how much a graph with nothing reading it may write. It
-// only has to be enough for the backends that tell a lock from bytes arriving.
-const idleCaptureBytes = 32 << 20
 
 // Written is how much the running graph has carried, or zero when there is no
 // graph. A backend reusing a graph asks this to tell a card still carrying a
@@ -350,6 +341,8 @@ func (device *Device) Close() error {
 const drainEvery = 500 * time.Millisecond
 
 func (stream *Stream) Read(ctx context.Context, buffer []byte) (int, error) {
+	stream.mutex.Lock()
+	defer stream.mutex.Unlock()
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -363,35 +356,16 @@ func (stream *Stream) Read(ctx context.Context, buffer []byte) (int, error) {
 			return 0, err
 		}
 	}
-	for {
-		read, err := stream.file.Read(buffer)
-		if !errors.Is(err, io.EOF) {
-			return read, err
-		}
-		if read > 0 {
-			return read, nil
-		}
-		// The end of a file is the end of the stream so far, unless the spool
-		// has gone on to another: then this one is finished, and read to its
-		// end it has given everything it holds.
-		next, more := stream.spool.Next(stream.path)
-		if !more {
-			return 0, ErrWouldBlock
-		}
-		if read, err = stream.file.Read(buffer); read > 0 || !errors.Is(err, io.EOF) {
-			return read, err
-		}
-		opened, err := os.Open(next)
-		if err != nil {
-			return 0, err
-		}
-		_ = stream.file.Close()
-		_ = stream.spool.Consumed(stream.path)
-		stream.file, stream.path = opened, next
+	read, err := stream.spool.Read(buffer)
+	if read == 0 && err == nil {
+		return 0, ErrWouldBlock
 	}
+	return read, err
 }
 
 func (stream *Stream) Close() error {
+	stream.mutex.Lock()
+	defer stream.mutex.Unlock()
 	streamed := stream.device
 	// Whether this is still the stream the graph is writing for. A caller that let
 	// go of one carrier and asked for the next is two streams for a moment, and
@@ -404,35 +378,16 @@ func (stream *Stream) Close() error {
 		streamed.releaseStreamingTuner()
 	}
 	stream.device = nil
-	err := stream.file.Close()
-	var removeErr error
+	_ = stream.spool.Close()
 	switch {
 	case current && streamed.session == stream.session:
-		// The graph is still the device's, so it stays up for the next
-		// channel; only what it was writing to is dropped, and it is dropped
-		// by handing the graph a new file rather than by closing this one.
-		if removeErr = streamed.session.Recapture(idleCaptureBytes); removeErr != nil {
-			// A graph that cannot be pointed at a new file would go on filling
-			// the one just closed, so it is taken down and the next tune
-			// builds another.
-			streamed.closeSession()
-		}
+		// Keep the graph for the next channel, counting arrivals without
+		// retaining data while there is no reader.
+		streamed.session.Recapture(false)
 	case current && stream.session != nil:
 		stream.session.Close()
-		removeErr = stream.spool.Remove()
-	case !current:
-		// The graph has moved on to a newer stream and is writing that one's
-		// spool, so nothing here touches the graph: only the files this stream
-		// was reading go.
-		removeErr = stream.spool.Remove()
 	}
 	stream.session = nil
-	if err != nil {
-		return err
-	}
-	if removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-		return removeErr
-	}
 	return nil
 }
 

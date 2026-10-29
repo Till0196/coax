@@ -684,10 +684,10 @@ func TestATunerIsOfferedAChannelSpeltDifferently(t *testing.T) {
 // repair opens cards of its own, so a tune that walked into the middle of it
 // would be two openers on one card.
 func TestNothingIsOpenedBeforeTheHardwareHasSettled(t *testing.T) {
-	settled := make(chan struct{})
+	settled := make(chan error)
 	// The board these tests use is a px4 one, and the repair is said to be
 	// that backend's.
-	pool, registry, _ := newTestPool(t, Options{Settled: settled, Settling: []string{"px4"}})
+	pool, registry, _ := newTestPool(t, Options{Settled: NewSettlement(context.Background(), settled), Settling: []string{"px4"}})
 	owner := pool.NewOwner()
 
 	taken := make(chan error, 1)
@@ -727,9 +727,9 @@ func TestNothingIsOpenedBeforeTheHardwareHasSettled(t *testing.T) {
 // but the daemon, and a viewer whose card timed out for eleven seconds would
 // be told their reader cannot be read.
 func TestOnlyTheBackendBeingRepairedWaits(t *testing.T) {
-	settled := make(chan struct{})
+	settled := make(chan error)
 	t.Cleanup(func() { close(settled) })
-	pool, registry, _ := newTestPool(t, Options{Settled: settled, Settling: []string{"tbs"}})
+	pool, registry, _ := newTestPool(t, Options{Settled: NewSettlement(context.Background(), settled), Settling: []string{"tbs"}})
 	owner := pool.NewOwner()
 
 	lease, err := pool.Lease(Want{DeliverySystem: "ISDB-T", Owner: owner})

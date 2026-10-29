@@ -29,6 +29,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/device"
 	"github.com/Till0196/coax/internal/coaxd/host/pool"
+	"github.com/Till0196/coax/internal/coaxd/host/userlock"
 	"github.com/Till0196/coax/internal/coaxd/receiver"
 	"github.com/Till0196/coax/internal/coaxd/trace"
 )
@@ -55,18 +56,25 @@ var host struct {
 	client *rpc.Client
 }
 
-// hostCall makes one call to the host, starting it first if there is none.
-func hostCall(method string, arguments, reply any) error {
-	client, err := hostClient()
-	if err != nil {
-		return err
-	}
+// hostCall uses the connection that created the handle. IDs are local to one
+// host process; reconnecting an old handle could operate on a different tuner.
+func hostCall(client *rpc.Client, method string, arguments, reply any) error {
 	return fromHost(client.Call("Host."+method, arguments, reply))
 }
 
 func hostClient() (*rpc.Client, error) {
+	return recoveryHostClient(context.Background())
+}
+
+func recoveryHostClient(ctx context.Context) (*rpc.Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	host.mutex.Lock()
 	defer host.mutex.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if host.client != nil {
 		return host.client, nil
 	}
@@ -74,7 +82,10 @@ func hostClient() (*rpc.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("find this program to start the BDA host: %w", err)
 	}
-	command := exec.Command(executable, HostCommand)
+	if err := waitForEarlierHost(ctx); err != nil {
+		return nil, err
+	}
+	command := exec.Command(executable, HostCommand, socketKey)
 	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow | createBreakawayFromJob}
 	input, err := command.StdinPipe()
 	if err != nil {
@@ -117,6 +128,19 @@ func hostClient() (*rpc.Client, error) {
 	return client, nil
 }
 
+// socketKey names the socket this daemon serves, which the host's lock is
+// named after. See SetSocket.
+var socketKey string
+
+// SetSocket names the socket this daemon serves.
+func SetSocket(path string) {
+	socketKey = userlock.Key(path)
+}
+
+// hostLock is the mutex a host holds for as long as it runs, so the daemon that
+// replaces the one which started it can tell it is still giving tuners back.
+func hostLock(key string) string { return "bda-host-" + key }
+
 // pipes joins a process's output and input into one connection.
 type pipes struct {
 	io.Reader
@@ -157,12 +181,16 @@ type HostData struct {
 
 // openHosted opens a tuner in the host.
 func openHosted(backend, selector string) (openedDevice, error) {
+	client, err := hostClient()
+	if err != nil {
+		return openedDevice{}, err
+	}
 	var opened HostOpened
-	if err := hostCall("Open", HostOpen{Backend: backend, Selector: selector}, &opened); err != nil {
+	if err := hostCall(client, "Open", HostOpen{Backend: backend, Selector: selector}, &opened); err != nil {
 		return openedDevice{}, err
 	}
 	return openedDevice{
-		device:   &hostedDevice{id: opened.ID, backend: opened.Backend, name: opened.Name},
+		device:   &hostedDevice{client: client, id: opened.ID, backend: opened.Backend, name: opened.Name},
 		mode:     opened.Mode,
 		settings: opened.Settings,
 	}, nil
@@ -170,6 +198,7 @@ func openHosted(backend, selector string) (openedDevice, error) {
 
 // hostedDevice is a tuner the host holds.
 type hostedDevice struct {
+	client        *rpc.Client
 	id            int
 	backend, name string
 }
@@ -179,39 +208,42 @@ func (d *hostedDevice) Name() string    { return d.name }
 
 func (d *hostedDevice) Supports(delivery string) (bool, error) {
 	var supported bool
-	err := hostCall("Supports", HostSupports{ID: d.id, Delivery: delivery}, &supported)
+	err := hostCall(d.client, "Supports", HostSupports{ID: d.id, Delivery: delivery}, &supported)
 	return supported, err
 }
 
 func (d *hostedDevice) Tune(properties map[string]string) error {
-	return hostCall("Tune", HostTune{ID: d.id, Properties: properties}, &struct{}{})
+	return hostCall(d.client, "Tune", HostTune{ID: d.id, Properties: properties}, &struct{}{})
 }
 
 func (d *hostedDevice) Status() (receiver.Status, error) {
 	var status receiver.Status
-	err := hostCall("Status", d.id, &status)
+	err := hostCall(d.client, "Status", d.id, &status)
 	return status, err
 }
 
 func (d *hostedDevice) OpenStream() (receiver.Stream, error) {
 	var stream int
-	if err := hostCall("OpenStream", d.id, &stream); err != nil {
+	if err := hostCall(d.client, "OpenStream", d.id, &stream); err != nil {
 		return nil, err
 	}
-	return &hostedStream{id: stream}, nil
+	return &hostedStream{client: d.client, id: stream}, nil
 }
 
-func (d *hostedDevice) Close() error { return hostCall("Close", d.id, &struct{}{}) }
+func (d *hostedDevice) Close() error { return hostCall(d.client, "Close", d.id, &struct{}{}) }
 
 // hostedStream is a stream the host is reading for this daemon.
-type hostedStream struct{ id int }
+type hostedStream struct {
+	client *rpc.Client
+	id     int
+}
 
 func (s *hostedStream) Read(ctx context.Context, buffer []byte) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
 	var data HostData
-	if err := hostCall("Read", HostRead{Stream: s.id, Max: len(buffer)}, &data); err != nil {
+	if err := hostCall(s.client, "Read", HostRead{Stream: s.id, Max: len(buffer)}, &data); err != nil {
 		return 0, err
 	}
 	if data.WouldBlock {
@@ -220,4 +252,16 @@ func (s *hostedStream) Read(ctx context.Context, buffer []byte) (int, error) {
 	return copy(buffer, data.Data), nil
 }
 
-func (s *hostedStream) Close() error { return hostCall("CloseStream", s.id, &struct{}{}) }
+func (s *hostedStream) Close() error { return hostCall(s.client, "CloseStream", s.id, &struct{}{}) }
+
+// ReleaseHost closes the parent's RPC connection. The child finishes calls and
+// stops its graphs before exiting, even when this daemon no longer waits.
+func ReleaseHost() {
+	host.mutex.Lock()
+	client := host.client
+	host.client = nil
+	host.mutex.Unlock()
+	if client != nil {
+		_ = client.Close()
+	}
+}

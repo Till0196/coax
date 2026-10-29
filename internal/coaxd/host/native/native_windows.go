@@ -42,20 +42,35 @@ func Owns(one pool.Detected) bool {
 
 // Recover puts back any tuner a previous run was killed while holding and
 // reports how many it repaired, asking the hardware rather than remembering
-// across runs. The capture files such a run left behind go too.
+// across runs.
 //
 // The repair opens graphs, so it runs in the host process like every other
 // graph. A machine with no TBS card has nothing to repair and starts no host.
-func Recover() int {
-	bda.RemoveLeftovers()
-	if cards, err := tbs.Devices(); err != nil || len(cards) == 0 {
-		return 0
+func Recover(ctx context.Context) (int, error) {
+	cards, err := tbs.Devices()
+	if err != nil {
+		return 0, err
+	}
+	if len(cards) == 0 {
+		return 0, nil
+	}
+	client, err := recoveryHostClient(ctx)
+	if err != nil {
+		return 0, err
 	}
 	var repaired int
-	if err := hostCall("Recover", struct{}{}, &repaired); err != nil {
-		return 0
+	call := client.Go("Host.Recover", struct{}{}, &repaired, nil)
+	for {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case result := <-call.Done:
+			if result.Error != nil {
+				return 0, fromHost(result.Error)
+			}
+			return repaired, nil
+		}
 	}
-	return repaired
 }
 
 // Recovering names the backends Recover touches. Nothing else waits for it:
@@ -278,7 +293,7 @@ type onThread struct {
 
 	// streams are the streams opened and not yet closed. Closing the device
 	// closes them first, on the thread: once the thread has stopped, a stream's
-	// own Close has nowhere to run and its file would be left behind.
+	// own Close has nowhere to run and its buffer would be left behind.
 	streamsMutex sync.Mutex
 	streams      map[*onThreadStream]bool
 }
@@ -350,8 +365,8 @@ func (o *onThread) Close() error {
 }
 
 // onThreadStream sends the calls that touch the graph to the thread and leaves
-// reads where they are: a BDA graph writes into a file this program reads back,
-// so a read is ordinary file I/O and must not queue behind a tuning call.
+// reads where they are: the BDA callback writes into a synchronized memory pipe,
+// so a read need not queue behind a tuning call.
 type onThreadStream struct {
 	stream receiver.Stream
 	thread *comThread

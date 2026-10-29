@@ -82,7 +82,8 @@ func (bus *Bus) writeRaw(address byte, data []byte) error {
 	request[0] = address << 1
 	copy(request[I2CWriteAt:], data)
 	request[I2CWriteLenAt] = byte(len(data))
-	if err := bus.Properties.Set(Set, PropI2C, request); err != nil {
+	err := bus.Properties.Set(Set, PropI2C, request)
+	if err != nil {
 		return fmt.Errorf("%s: I2C write to %#02x: %w", bus.Name, address, err)
 	}
 	return nil
@@ -117,7 +118,8 @@ func (bus *Bus) WriteRead(address byte, write []byte, readLength int) ([]byte, e
 	// The driver fills the read area of the structure it was handed and copies
 	// the whole thing back, so the reply is read out of the same offsets.
 	reply := make([]byte, I2CStructBytes)
-	if _, err := bus.Properties.GetWithInstance(Set, PropI2C, request, reply); err != nil {
+	_, err := bus.Properties.GetWithInstance(Set, PropI2C, request, reply)
+	if err != nil {
 		return nil, fmt.Errorf("%s: I2C read from %#02x: %w", bus.Name, address, err)
 	}
 	return append([]byte(nil), reply[I2CReadAt:I2CReadAt+readLength]...), nil

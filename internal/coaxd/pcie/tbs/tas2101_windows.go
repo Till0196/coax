@@ -118,3 +118,7 @@ func (satellite *tas2101Demod) SetVoltage(high, off bool) error {
 }
 
 func (satellite *tas2101Demod) SetTone(on bool) error { return satellite.demod.SetTone(on) }
+
+func (satellite *tas2101Demod) SendDiSEqC(message []byte) error {
+	return satellite.demod.SendDiSEqC(message)
+}

@@ -5,193 +5,93 @@ package graph
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
-	"strings"
+	"io"
 	"sync"
 )
 
-// Spool is what a graph writes its stream into: a run of files rather than
-// one. Each is closed once it has taken spoolSegment bytes and the next begun,
-// so a reader that has finished with one can delete it and the disk holds a
-// few segments however long the graph runs. One file would take 17 GB an hour
-// of a 39 Mbps carrier, and could not be cut down while the graph held it.
-//
-// The files are made with names nobody can guess and that nothing else may
-// already hold, in the temporary directory. A service's temporary directory is
-// the system's, which every user can write to.
+// Spool is a bounded byte pipe. Its ring accepts arbitrary sample sizes and
+// copies bytes in and out independent of TS or TLV framing.
+// Writers never wait for a reader. Overflow ends the stream instead of joining
+// bytes across a gap, which could corrupt a variable-length packet.
 type Spool struct {
-	// limit bounds the whole spool, for the stretches when nothing is reading
-	// it; past it, writes are swallowed. Zero is unbounded.
-	limit int64
-	// segment is how much one file takes; spoolSegment but in a test.
-	segment int64
-
-	mutex   sync.Mutex
-	file    *os.File
-	written int64 // into file
-	total   int64
-	// paths are the files not yet deleted, oldest first. While the spool is
-	// being written, the last is file's.
-	paths  []string
-	closed bool
+	mutex    sync.Mutex
+	buffer   []byte
+	head     int
+	buffered int
+	closed   bool
+	failure  error
 }
 
-// spoolSegment is how much one file takes before the next is begun.
-const spoolSegment = 64 << 20
+var ErrCaptureOverflow = errors.New("BDA capture buffer overflow: reader cannot keep up")
 
-// spoolUnread is how many files a reader may fall behind by. A reader further
-// behind than that -- half a gigabyte, a couple of minutes of the widest
-// carrier -- is not coming back for them soon, and the stream is dropped rather
-// than the disk filled.
-const spoolUnread = 8
+const (
+	spoolInitialCapacity = 256 << 10
+	spoolCapacity        = 32 << 20
+)
 
-// spoolPattern names the files, so a run that was killed can have what it left
-// behind found again. See RemoveLeftovers.
-const spoolPattern = "coax-bda-*.ts"
-
-// NewSpool begins a spool, with its first file.
-func NewSpool(limit int64) (*Spool, error) {
-	file, err := os.CreateTemp("", spoolPattern)
-	if err != nil {
-		return nil, err
-	}
-	return &Spool{limit: limit, segment: spoolSegment, file: file, paths: []string{file.Name()}}, nil
-}
-
-// Write takes what the graph delivered. It reports everything as written when
-// it drops some or all of it: the graph is not being told the disk failed, it
-// is being told nothing at all, which is what a stream nobody reads is.
 func (s *Spool) Write(data []byte) (int, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if s.closed || s.file == nil {
-		return len(data), nil
+	size := len(data)
+	// The reader receives failures. Returning one to DirectShow would stop the
+	// graph from its callback rather than through the owner's teardown path.
+	if s.closed || s.failure != nil {
+		return size, nil
 	}
-	wanted := data
-	if s.limit > 0 {
-		left := s.limit - s.total
-		if left <= 0 {
-			return len(data), nil
-		}
-		if int64(len(wanted)) > left {
-			wanted = wanted[:left]
-		}
+	if len(data) > spoolCapacity-s.buffered {
+		s.failure = ErrCaptureOverflow
+		return size, nil
 	}
-	if s.written >= s.segment {
-		if len(s.paths) >= spoolUnread {
-			return len(data), nil
-		}
-		if err := s.begin(); err != nil {
-			return 0, err
-		}
+	if len(data) == 0 {
+		return size, nil
 	}
-	written, err := s.file.Write(wanted)
-	s.written += int64(written)
-	s.total += int64(written)
-	if err != nil {
-		return written, err
+	if needed := s.buffered + len(data); needed > len(s.buffer) {
+		capacity := max(spoolInitialCapacity, len(s.buffer))
+		for capacity < needed {
+			capacity *= 2
+		}
+		next := make([]byte, capacity)
+		if s.buffered > 0 {
+			first := copy(next[:s.buffered], s.buffer[s.head:])
+			copy(next[first:s.buffered], s.buffer[:s.buffered-first])
+		}
+		s.buffer, s.head = next, 0
 	}
-	return len(data), nil
+	tail := (s.head + s.buffered) % len(s.buffer)
+	n := copy(s.buffer[tail:], data)
+	copy(s.buffer, data[n:])
+	s.buffered += len(data)
+	return size, nil
 }
 
-// begin closes the file being written and starts the next. The caller holds
-// the lock.
-func (s *Spool) begin() error {
-	next, err := os.CreateTemp("", spoolPattern)
-	if err != nil {
-		return err
-	}
-	_ = s.file.Close()
-	s.file, s.written = next, 0
-	s.paths = append(s.paths, next.Name())
-	return nil
-}
-
-// First is the oldest file still there, which is where a reader starts.
-func (s *Spool) First() string {
+// Read returns immediately. Zero bytes with no error means the reader should
+// ask again later. A failure follows the retained prefix before the gap.
+func (s *Spool) Read(out []byte) (int, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if len(s.paths) == 0 {
-		return ""
+	n := min(len(out), s.buffered)
+	if n == 0 {
+		if len(out) > 0 {
+			if s.closed {
+				return 0, io.ErrClosedPipe
+			}
+			return 0, s.failure
+		}
+		return 0, nil
 	}
-	return s.paths[0]
+	first := copy(out[:n], s.buffer[s.head:])
+	copy(out[first:n], s.buffer[:n-first])
+	s.head = (s.head + n) % len(s.buffer)
+	s.buffered -= n
+	return n, nil
 }
 
-// Next is the file after this one, once there is one. A file with one after
-// it is finished: a reader that has read it to the end has all of it.
-func (s *Spool) Next(path string) (string, bool) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	for index, one := range s.paths {
-		if one == path && index+1 < len(s.paths) {
-			return s.paths[index+1], true
-		}
-	}
-	return "", false
-}
-
-// Consumed deletes a file a reader has finished with.
-func (s *Spool) Consumed(path string) error {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	for index, one := range s.paths {
-		if one != path {
-			continue
-		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		s.paths = append(s.paths[:index], s.paths[index+1:]...)
-		return nil
-	}
-	return nil
-}
-
-// Remove stops the spool and deletes every file it still has. A file a reader
-// still has open cannot be deleted on Windows; it is kept, and a later Remove,
-// once the reader has let go, deletes it.
-func (s *Spool) Remove() error {
+func (s *Spool) Close() error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	s.closed = true
-	if s.file != nil {
-		_ = s.file.Close()
-		s.file = nil
-	}
-	var first error
-	kept := s.paths[:0]
-	for _, path := range s.paths {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			kept = append(kept, path)
-			if first == nil {
-				first = err
-			}
-		}
-	}
-	s.paths = kept
-	return first
-}
-
-// RemoveLeftovers deletes what a run that was killed left in the temporary
-// directory. A spool still being written is not touched: its file is open, and
-// Windows refuses to delete an open file.
-func RemoveLeftovers() int {
-	matches, err := filepath.Glob(filepath.Join(os.TempDir(), spoolPattern))
-	if err != nil {
-		return 0
-	}
-	removed := 0
-	for _, path := range matches {
-		if !strings.HasPrefix(filepath.Base(path), "coax-bda-") {
-			continue
-		}
-		if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		if os.Remove(path) == nil {
-			removed++
-		}
-	}
-	return removed
+	s.buffer = nil
+	s.head = 0
+	s.buffered = 0
+	return nil
 }

@@ -1207,3 +1207,18 @@ func TestATunerThatIsNotStreamingReportsNoStreamCounts(t *testing.T) {
 		t.Errorf("a tuner that is not streaming reported %+v", *described.Stream)
 	}
 }
+
+func TestStreamPrefixAlignsBothFramings(t *testing.T) {
+	ts := make([]byte, 188*4)
+	for at := 0; at < len(ts); at += 188 {
+		ts[at] = 0x47
+	}
+	tlv := []byte{0x7f, 0xff, 0, 1, 5, 0x7f, 0xff, 0, 0, 0x7f, 0xff, 0, 2, 1, 2}
+	for format, data := range map[string][]byte{"ts": ts, "tlv": tlv} {
+		prefix := append([]byte{0xfe, 0xff, 0, 1, 2}, data...)
+		got := alignedPrefix(prefix, format)
+		if string(got) != string(data) {
+			t.Fatalf("%s prefix not aligned", format)
+		}
+	}
+}

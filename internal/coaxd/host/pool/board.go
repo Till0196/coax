@@ -88,12 +88,6 @@ func (b *board) acquire() error {
 		b.opening = true
 		b.mutex.Unlock()
 
-		// Whatever the daemon had to put right on this backend. Waited for
-		// here rather than before serving, so that everything which does not
-		// touch the hardware being repaired is answered while it runs.
-		if b.pool.waitsToSettle(b.entry.key.Backend) {
-			<-b.pool.options.Settled
-		}
 		opened, err := b.pool.registry.Open(b.entry.detected, device.Options{
 			Selector:    b.entry.key.Selector,
 			FirmwareDir: b.pool.options.FirmwareDir,
@@ -129,7 +123,10 @@ func (b *board) acquire() error {
 
 // hold counts one more user and opens the board; a caller that gets an error is
 // not counted.
-func (b *board) hold(count *int) error {
+func (b *board) hold(ctx context.Context, count *int) error {
+	if err := b.pool.waitForSettlement(ctx, b.entry.key.Backend); err != nil {
+		return err
+	}
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 	*count++
@@ -294,8 +291,8 @@ func (b *board) Open() bool {
 }
 
 // watch keeps the board open while a caller looks at it, and returns the stop.
-func (b *board) watch() (func(), error) {
-	if err := b.hold(&b.watchers); err != nil {
+func (b *board) watch(ctx context.Context) (func(), error) {
+	if err := b.hold(ctx, &b.watchers); err != nil {
 		return nil, err
 	}
 	var once sync.Once
@@ -332,7 +329,12 @@ func (b *board) layout() []device.TunerInfo {
 // preempt allows the tuner to be taken from work that asked for it at a lower
 // priority. It is never set on the first look over the boards: only once
 // nothing is free is a holder worth taking one from.
-func (b *board) lease(index int, owner Owner, priority int, preempt bool) (*Lease, error) {
+func (b *board) lease(ctx context.Context, index int, owner Owner, priority int, preempt bool) (*Lease, error) {
+	// Wait before claiming a slot or becoming its opener, so each request can
+	// leave independently and none waits on another request's condition variable.
+	if err := b.pool.waitForSettlement(ctx, b.entry.key.Backend); err != nil {
+		return nil, err
+	}
 	b.mutex.Lock()
 	b.waitForHandover(index)
 	if held, taken := b.leases[index]; taken {
@@ -504,7 +506,7 @@ func (b *board) release(lease *Lease) {
 }
 
 func (b *board) card(owner Owner) (*CardHold, error) {
-	if err := b.hold(&b.cards); err != nil {
+	if err := b.hold(context.Background(), &b.cards); err != nil {
 		return nil, err
 	}
 	b.mutex.Lock()

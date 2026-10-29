@@ -103,6 +103,7 @@ func Run(ctx context.Context, options Options) error {
 
 	native.SetRoot(options.DVBRoot)
 	native.SetChardevRoot(options.ChardevRoot)
+	native.SetSocket(options.Sockets.HTTP)
 
 	// Claimed before anything is opened. See TakeClaim.
 	claim, err := TakeClaim(options.Sockets.HTTP, options.Sockets.Private)
@@ -117,19 +118,22 @@ func Run(ctx context.Context, options Options) error {
 	// cards are asked, and only the ones that answer wrongly are put right.
 	//
 	// It runs beside the daemon rather than before it. Putting a tuner back is the
-	// vendor driver tearing a graph down and building another, measured at eleven
-	// seconds on a four-tuner card -- long enough for the client which started
-	// this daemon to give up on it. See pool.Options.Settled.
-	settled := make(chan struct{})
+	// vendor driver opening and closing hardware, which can outlast the client
+	// that started this daemon. See pool.Options.Settled.
+	recovered := make(chan error, 1)
+	recoveryContext, stopRecovery := context.WithCancel(ctx)
+	defer func() { stopRecovery(); native.ReleaseHost() }()
+	settled := pool.NewSettlement(recoveryContext, recovered)
 	go func() {
-		defer close(settled)
-		if repaired := native.Recover(); repaired > 0 {
+		repaired, err := native.Recover(recoveryContext)
+		recovered <- err
+		if err != nil && recoveryContext.Err() == nil {
+			options.Report("startup repair: " + err.Error())
+		}
+		if repaired > 0 {
 			options.Report(fmt.Sprintf("put %d tuner(s) back after an earlier run ended without releasing them", repaired))
 		}
 	}()
-	// Before anything is handed back and before the claim goes, so the daemon which
-	// starts next does not begin its own repair on a card this one is still on.
-	defer func() { <-settled }()
 
 	supervisor := pool.New(registry{cold: &coldBoot{firmwareDir: options.FirmwareDir, report: options.Report}}, pool.Options{
 		FirmwareDir: options.FirmwareDir,

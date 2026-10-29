@@ -10,8 +10,9 @@
 // four independent demodulators. The way out is the raw I2C property the driver
 // exposes on each tuner's input pin: the chip is driven with this repository's
 // own drivers and the card's mode left alone. The BDA graph is still built,
-// because the card's DMA is the only way to move the stream into user memory;
-// the channel it is built against is a formality.
+// because the card's DMA is the only way to move the stream into user memory.
+// Standalone terrestrial Sony chips need only its network type; other cards
+// retain the vendor channel that prepares their firmware or input routing.
 package tbs
 
 import (
@@ -32,6 +33,7 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/demod/stv091x"
 	"github.com/Till0196/coax/internal/coaxd/demod/tas2101"
 	coaxdevice "github.com/Till0196/coax/internal/coaxd/device"
+	"github.com/Till0196/coax/internal/coaxd/trace"
 	"github.com/Till0196/coax/internal/coaxd/tuner/av201x"
 	"github.com/Till0196/coax/internal/coaxd/tuner/rda5816"
 	"github.com/Till0196/coax/internal/coaxd/tuner/si2157"
@@ -123,9 +125,8 @@ type model struct {
 	states map[bda.DemodMode]vendorState
 	// modeSelectsFilter says the mode picks which network type the vendor driver's
 	// BDA filter advertises, so it has to agree with the standard wanted before the
-	// graph goes up. Nothing outside the demodulator depends on it: the per-tuner
-	// antenna switch at GPIO offset 0x8 has nothing behind it, and the LNB supply
-	// is a separate vendor property (0x15, TBSACCESS) on GPIO offset 0.
+	// graph goes up. Some boards also switch their aerial input through this
+	// path; that GPIO is not available through the raw I2C property.
 	modeSelectsFilter bool
 }
 
@@ -933,6 +934,8 @@ func Devices() ([]Found, error) {
 // TAS2101 cards (6902, 6904, 6910) keep the supply on the demodulator, which can
 // change the voltage but not switch it off. A quattro-fed card's supply is not
 // touched at all, and a 6812 has the connector on its first tuner only.
+// The vendor preparation channel can enable the supply before direct control,
+// so an off request cannot be guaranteed for these satellite graphs.
 func (card model) supplyFor(slot int, deliveries []string) *coaxdevice.LNBControl {
 	satellite := false
 	for _, system := range deliveries {
@@ -946,7 +949,7 @@ func (card model) supplyFor(slot int, deliveries []string) *coaxdevice.LNBContro
 	if strings.Contains(card.match, "6812") && slot > 1 {
 		return nil
 	}
-	return &coaxdevice.LNBControl{Off: card.satelliteTAS == nil, Low: "13V", High: "18V"}
+	return &coaxdevice.LNBControl{Off: false, Low: "13V", High: "18V"}
 }
 
 func modelFor(name string) (model, bool) {
@@ -1001,9 +1004,7 @@ func Supports(deliverySystem string) bool {
 // Device is one tuner of a card, driven from here.
 type Device struct {
 	transport *bda.Device
-	// transportStarted is when the vendor's graph was last brought up. See holdTune.
-	transportStarted time.Time
-	model            model
+	model     model
 	// slot picks the bus's tuner address and the mode byte the tuner owns.
 	slot   int
 	config sony.Config
@@ -1080,16 +1081,18 @@ func (device *Device) Supports(deliverySystem string) bool {
 //
 // The graph comes up first: the demodulator is only reachable through a pin a
 // running graph gives a handle to. It is built against the standard the card's
-// mode names rather than the one asked for, since that is the one the vendor
-// driver will agree to build; what is really demodulated is settled over I2C.
+// mode names. Standalone terrestrial chips receive no vendor channel; other
+// cards keep that channel for board preparation before the chips are tuned.
 func (device *Device) Tune(properties map[string]string) error {
-	// Built even when the graph is a formality: BuildTuneProfile is where the
-	// frequency's unit is settled, kHz for satellite and Hz for terrestrial.
-	// The supply is this backend's to set (below), so the BDA side is not asked.
-	profile, err := bda.BuildDrivenProfile(properties)
+	began := time.Now()
+	defer func() { trace.Printf("TBS tune slot=%d elapsed=%s", device.slot, time.Since(began)) }()
+	// Keep the chip frequency separate from the vendor profile: the latter
+	// converts satellite IF back to the downlink frequency for an LNBf.
+	frequency, err := channelFrequency(properties)
 	if err != nil {
 		return err
 	}
+
 	system, err := systemFor(properties["DELIVERY_SYSTEM"])
 	if err != nil {
 		return err
@@ -1126,24 +1129,25 @@ func (device *Device) Tune(properties map[string]string) error {
 		return err
 	}
 
-	rebuilt, err := device.startTransport(system)
-	if err != nil {
-		return err
-	}
-	// The supply on the aerial lead is the card's, reached through a vendor property
-	// rather than the bus: the graph was built against a formality, so the
-	// polarization the BDA request carried was for another channel.
-	//
-	// A quattro-fed card is left alone: its leads are all live at their own band,
-	// and polarization there means which lead to listen to.
-	if system.IsSatellite() && !device.model.quattroFed {
+	if system.IsSatellite() {
 		supply, err := tuning.SatelliteSupply(properties)
 		if err != nil {
 			return err
 		}
-		if err := tuning.ApplySupply(supply, device.supply().Set); err != nil {
+		if supply.Off && !device.model.quattroFed && !device.model.untunedTransport() {
+			return fmt.Errorf("%w: this card's vendor preparation channel can enable its supply", tuning.ErrNoLNBSwitch)
+		}
+		_, wanted, err := tuning.DiseqcFor(properties)
+		if err != nil {
 			return err
 		}
+		if wanted && (device.model.quattroFed || device.model.hasSatellite() && device.model.satelliteTAS == nil) {
+			return fmt.Errorf("SAT_NUMBER cannot switch this card's aerial lead")
+		}
+	}
+	rebuilt, err := device.startTransport(system)
+	if err != nil {
+		return err
 	}
 	wakeup := sony.WakeupParams{
 		BandwidthMHz:  bandwidthMHz,
@@ -1154,27 +1158,16 @@ func (device *Device) Tune(properties map[string]string) error {
 	if err := device.demod.Wakeup(system, wakeup); err != nil {
 		return fmt.Errorf("wake the demodulator for %s: %w", system, err)
 	}
-	// The tone comes after the wake-up rather than beside the voltage: its register
-	// block is on the chip's satellite side, where the wake-up puts it.
 	if system.IsSatellite() {
-		// A satellite demodulator with a supply of its own is told after the bridge
-		// GPIO.
-		if regulator, ok := device.demod.(interface{ SetVoltage(bool, bool) error }); ok {
-			supply, err := tuning.SatelliteSupply(properties)
-			if err != nil {
-				return err
-			}
-			if err := tuning.ApplySupply(supply, regulator.SetVoltage); err != nil {
-				return fmt.Errorf("set the demodulator's LNB voltage: %w", err)
-			}
+		var bridge func(bool, bool) error
+		if device.model.satelliteTAS == nil && !device.model.quattroFed {
+			bridge = device.supply().Set
 		}
-		if toner, ok := device.demod.(interface{ SetTone(bool) error }); ok {
-			if err := toner.SetTone(tuning.ToneWanted(properties)); err != nil {
-				return fmt.Errorf("set the 22 kHz tone: %w", err)
-			}
+		if err := satelliteEquipment(device.demod, properties, bridge, device.model.quattroFed); err != nil {
+			return err
 		}
 	}
-	device.frequency = uint32(profile.FrequencyKHz)
+	device.frequency = frequency
 	if err := device.demod.Tune(device.frequency); err != nil {
 		return fmt.Errorf("tune the demodulator: %w", err)
 	}
@@ -1186,71 +1179,11 @@ func (device *Device) Tune(properties map[string]string) error {
 				return fmt.Errorf("finish the tune: %w", err)
 			}
 		}
-		// And no graph was built, so no vendor tune is on its way to drag it off.
+		// Reusing the graph submits no new channel to the vendor.
 		return nil
 	}
-	return device.holdTune(system, wakeup)
+	return nil
 }
-
-// holdTune keeps the hardware on the channel it was just asked for.
-//
-// The vendor driver tunes as it brings its graph up, and that tune can land after
-// this one -- measured at about 1.5s on a 6205se. Nothing else shows it: the
-// demodulator locks and reports a ratio and a level for the channel it was
-// dragged to, so a scan came back with one channel's stream under every name.
-// The tuner's own registers are the only witness, so the tune is read back and
-// re-applied until it stays put past the moment the vendor's tune lands.
-func (device *Device) holdTune(system sony.System, wakeup sony.WakeupParams) error {
-	reader, ok := device.demod.(interface{ TunedKHz() (uint32, error) })
-	if !ok {
-		return nil
-	}
-	deadline := time.Now().Add(tuneHoldTimeout)
-	for {
-		at, err := reader.TunedKHz()
-		if err != nil {
-			// The read-back is a courtesy not every tuner offers; leave it tuned.
-			return nil
-		}
-		if at == device.frequency && time.Since(device.transportStarted) >= vendorTuneSettles {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			if at == device.frequency {
-				return nil
-			}
-			return fmt.Errorf("the vendor driver keeps retuning this tuner: asked for %d kHz, it sits at %d kHz",
-				device.frequency, at)
-		}
-		if at != device.frequency {
-			// Waking it again too: whatever moved the tuner drove its acquisition.
-			if err := device.demod.Wakeup(system, wakeup); err != nil {
-				return fmt.Errorf("wake the demodulator for %s: %w", system, err)
-			}
-			if err := device.demod.Tune(device.frequency); err != nil {
-				return fmt.Errorf("tune the demodulator: %w", err)
-			}
-			// A wake-up that found the demodulator already in this system turns the
-			// stream off on its way in; without this the card carries nothing.
-			if finisher, ok := device.demod.(interface{ TuneEnd() error }); ok {
-				if err := finisher.TuneEnd(); err != nil {
-					return fmt.Errorf("finish the tune: %w", err)
-				}
-			}
-		}
-		time.Sleep(tuneHoldInterval)
-	}
-}
-
-const (
-	// vendorTuneSettles is how long after the graph came up the vendor driver's own
-	// tune may still land. Measured at about 1.5s on a 6205se, plus margin.
-	vendorTuneSettles = 2500 * time.Millisecond
-	// tuneHoldInterval is how often the tuner is asked where it is.
-	tuneHoldInterval = 150 * time.Millisecond
-	// tuneHoldTimeout gives up rather than fighting a driver for ever.
-	tuneHoldTimeout = 8 * time.Second
-)
 
 // startTransport brings the graph up, and the demodulator with it, on every tune.
 // Neither depends on the channel, but both depend on things a tune does not leave
@@ -1262,26 +1195,27 @@ const (
 //   - A channel that does not lock leaves the graph standing and starved, and it
 //     does not pick up again when the next one locks.
 //
-// The cost is a graph and one demodulator bring-up per tune, about 65ms median.
 // Writing the card's mode is still done only when needed, which attach guards.
 func (device *Device) startTransport(system sony.System) (rebuilt bool, err error) {
 	rebuilt = !device.reusableGraph(system)
 	if rebuilt {
-		device.restoreForRebuild()
+		if !device.model.untunedTransport() {
+			device.restoreForRebuild()
+		}
 		if err := device.attach(system); err != nil {
 			return false, err
 		}
-		// When the vendor driver's own tune started; holdTune counts from here.
-		device.transportStarted = time.Now()
 	}
 	// A demodulator already in this standard is left alone, which is what the vendor
 	// driver does on a channel change. Initializing one here while the card was
 	// carrying a stream cost the transport its sync until a new graph was built.
 	if rebuilt || device.system != system {
 		demod := device.demodFor(system)
+		began := time.Now()
 		if err := demod.Initialize(); err != nil {
 			return rebuilt, fmt.Errorf("initialize the demodulator: %w", err)
 		}
+		trace.Printf("TBS initialize slot=%d elapsed=%s", device.slot, time.Since(began))
 		device.demod = demod
 	}
 	device.system = system
@@ -1291,7 +1225,7 @@ func (device *Device) startTransport(system sony.System) (rebuilt bool, err erro
 
 // reusableGraph is whether the graph standing from the last tune can serve this
 // one, which is what makes a channel change cheap: no graph to build and no
-// vendor tune to wait out, about 2.4s saved per channel on a 6205se.
+// vendor tune to wait out.
 //
 // Three things have to hold. The bus has to still be a pin of a running graph,
 // or every write fails with E_HANDLE. The card has to already be in the mode
@@ -1310,16 +1244,9 @@ func (device *Device) reusableGraph(system sony.System) bool {
 	return device.transport.Written() > device.carriedAtTune
 }
 
-// restoreForRebuild puts the demodulator back into the standard the card's own
-// mode names, before the graph that is about to be built tunes it.
-//
-// The vendor driver tunes as it brings a graph up, and on a demodulator left in
-// another standard with nothing locked it waits out its own lock timeout rather
-// than failing: 4.9s per channel, measured on a 6205se.
-//
-// Only where the bus is still live: a stream that was taken and closed has taken
-// the graph with it. That is exactly where the trouble is, since a channel that
-// did not lock takes no stream. It costs a bring-up and a wake, about 130ms.
+// restoreForRebuild leaves a live chip in the standard the vendor's next
+// channel expects. Warm-only chips and input-switching cards still need that
+// channel to prepare their firmware, TS routing or aerial input.
 func (device *Device) restoreForRebuild() {
 	if device.demod == nil || device.bus == nil {
 		return
@@ -1335,11 +1262,22 @@ func (device *Device) restoreForRebuild() {
 	if err := restored.Initialize(); err != nil {
 		return
 	}
-	_ = restored.Wakeup(state.systems[0], sony.WakeupParams{
-		BandwidthMHz:  state.bandwidthMHz,
-		PLPID:         -1,
-		SymbolRateSPS: state.symbolRateSPS,
-	})
+	_ = restored.Wakeup(state.systems[0], sony.WakeupParams{BandwidthMHz: state.bandwidthMHz, PLPID: -1, SymbolRateSPS: state.symbolRateSPS})
+}
+
+// untunedTransport is limited to standalone Sony terrestrial chips, whose
+// initialization is complete here. Satellite firmware and board input routing
+// still depend on the vendor's channel and are not inferred from this family.
+func (card model) untunedTransport() bool {
+	if card.newDemod == nil || card.hasSatellite() || card.modeSelectsFilter {
+		return false
+	}
+	for _, delivery := range card.deliveries {
+		if tuning.IsSatellite(delivery) {
+			return false
+		}
+	}
+	return true
 }
 
 // demodFor picks which of the card's demodulators a standard wants. The card's
@@ -1396,7 +1334,11 @@ func (device *Device) refreshBus() error {
 		if buildErr != nil {
 			return buildErr
 		}
-		if err := device.transport.StartTransport(profile); err != nil {
+		start := device.transport.StartTransport
+		if device.model.untunedTransport() {
+			start = device.transport.StartUntunedTransport
+		}
+		if err := start(profile); err != nil {
 			return fmt.Errorf("start the card's transport again: %w", err)
 		}
 		if bus, err = device.transport.Bus(); err != nil {
@@ -1451,8 +1393,10 @@ func (device *Device) modeToUse(system sony.System) (bda.DemodMode, error) {
 // attach brings the graph up and takes hold of the tuner's I2C bus without
 // touching the demodulator: reading what it is set to has to happen before
 // anything resets it. system only chooses the mode the card has to be in; the
-// graph is always built against a formality.
+// carrier also supplies the vendor channel on cards that still need it.
 func (device *Device) attach(system sony.System) error {
+	began := time.Now()
+	defer func() { trace.Printf("TBS attach slot=%d elapsed=%s", device.slot, time.Since(began)) }()
 	wanted, err := device.modeToUse(system)
 	if err != nil {
 		return err
@@ -1463,14 +1407,20 @@ func (device *Device) attach(system sony.System) error {
 			device.transport.ModeName(wanted))
 	}
 	if wanted != device.vendorMode {
-		// Tune is the only way in, and it writes the mode from the channel it is
-		// given -- so it is given the formality.
-		if err := device.transport.Tune(state.carrier); err != nil {
+		// Select the mode before connecting the network type it advertises.
+		tune := device.transport.Tune
+		if device.model.untunedTransport() {
+			tune = device.transport.TuneUntuned
+		}
+		if err := tune(state.carrier); err != nil {
 			return fmt.Errorf("put the card into %s: %w", device.transport.ModeName(wanted), err)
 		}
 		current, err := device.transport.Mode()
 		if err != nil {
 			return fmt.Errorf("read the card's demodulator mode: %w", err)
+		}
+		if current != wanted {
+			return fmt.Errorf("the card stayed in %s instead of %s", device.modeName(current), device.modeName(wanted))
 		}
 		device.vendorMode = current
 	} else {
@@ -1478,7 +1428,11 @@ func (device *Device) attach(system sony.System) error {
 		if err != nil {
 			return err
 		}
-		if err := device.transport.StartTransport(profile); err != nil {
+		start := device.transport.StartTransport
+		if device.model.untunedTransport() {
+			start = device.transport.StartUntunedTransport
+		}
+		if err := start(profile); err != nil {
 			return fmt.Errorf("start the card's transport: %w", err)
 		}
 	}

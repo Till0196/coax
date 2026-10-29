@@ -42,7 +42,7 @@ func (s *Server) handleTuners(writer http.ResponseWriter, request *http.Request)
 	if request.URL.Query().Get("open") == "1" {
 		// Boards are re-read afterwards because opening them is what fills in what
 		// they carry.
-		failures = s.probe(boards)
+		failures = s.probe(request.Context(), boards)
 		if reread, err := s.pool.Boards(); err == nil {
 			boards = reread
 		}
@@ -63,13 +63,13 @@ func (s *Server) handleTuners(writer http.ResponseWriter, request *http.Request)
 // A board whose driver allows one open and no more is left alone: opening it
 // takes it away from everything else on the machine, and asking what is
 // attached should never be why a recorder could not start.
-func (s *Server) probe(boards []pool.BoardInfo) map[string]string {
+func (s *Server) probe(ctx context.Context, boards []pool.BoardInfo) map[string]string {
 	failures := make(map[string]string)
 	for _, board := range boards {
 		if board.Exclusive {
 			continue
 		}
-		stop, err := s.pool.Watch(board.Name)
+		stop, err := s.pool.WatchContext(ctx, board.Name)
 		if err != nil {
 			s.options.Report("probe " + board.Name + ": " + err.Error())
 			failures[board.Name] = err.Error()
@@ -366,7 +366,7 @@ func (s *Server) handleTune(writer http.ResponseWriter, request *http.Request) {
 // acquire finds the tuner a request should use, reusing one the connection
 // already holds when it will serve.
 func (s *Server) acquire(request *http.Request, parsed hostapi.Request) (*pool.Lease, error) {
-	return s.pool.Lease(pool.Want{
+	return s.pool.LeaseContext(request.Context(), pool.Want{
 		TunerID:        parsed.Tuner,
 		DeliverySystem: parsed.Properties["DELIVERY_SYSTEM"],
 		Owner:          owner(request),

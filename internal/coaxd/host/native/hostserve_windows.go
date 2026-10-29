@@ -16,38 +16,56 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/Till0196/coax/internal/coaxd/bda"
 	"github.com/Till0196/coax/internal/coaxd/host/pool"
+	"github.com/Till0196/coax/internal/coaxd/host/userlock"
 	"github.com/Till0196/coax/internal/coaxd/pcie/tbs"
 	"github.com/Till0196/coax/internal/coaxd/receiver"
 )
 
 // ServeHost answers the daemon that started this process, on its standard input
 // and output, until that input closes. Then every tuner still open is closed,
-// which stops its graph before its handles go.
-func ServeHost(input io.Reader, output io.WriteCloser) error {
-	served := &Host{devices: map[int]*onThread{}, streams: map[int]receiver.Stream{}}
+// which stops its graph before its handles go. arguments name the daemon's
+// socket (see SetSocket).
+func ServeHost(input io.Reader, output io.WriteCloser, arguments []string) error {
+	state := newHostState()
+	if len(arguments) > 0 {
+		if err := serveHostPipe(context.Background(), arguments[0], state); err != nil {
+			return err
+		}
+		if _, existed, err := userlock.Create(hostLock(arguments[0])); err != nil {
+			return err
+		} else if existed {
+			return fmt.Errorf("an earlier BDA host still holds this socket")
+		}
+	}
+	served := &Host{devices: map[int]*onThread{}, streams: map[int]receiver.Stream{}, state: state}
 	server := rpc.NewServer()
 	if err := server.RegisterName("Host", served); err != nil {
 		return err
 	}
+	state.set("serving")
 	// Logging off or shutting down ends this process too, and it would end with
 	// the graphs running: the daemon's input closing is not the only way out.
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-signals
+		state.set("closing")
 		served.closeAll()
+		state.set("closed")
 		os.Exit(0)
 	}()
 	server.ServeConn(pipes{Reader: input, WriteCloser: output})
+	state.set("closing")
 	served.closeAll()
+	state.set("closed")
 	return nil
 }
 
 // Host holds the tuners the daemon opened. Its methods are the calls the daemon
 // makes; see host_windows.go.
 type Host struct {
+	state   *hostState
 	mutex   sync.Mutex
 	next    int
 	devices map[int]*onThread
@@ -175,7 +193,8 @@ func (h *Host) Close(id int, _ *struct{}) error {
 
 // Recover is native.Recover's repair, made where the graphs are.
 func (h *Host) Recover(_ struct{}, repaired *int) error {
-	bda.RemoveLeftovers()
+	h.state.set("recovering")
+	defer h.state.set("serving")
 	*repaired = tbs.Recover()
 	return nil
 }
