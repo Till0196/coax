@@ -29,6 +29,9 @@ type linuxDVBDevice struct {
 	// A zero maximum means it did not say, and the range is not checked.
 	frequencyMin uint32
 	frequencyMax uint32
+	// settle is whether the front of the stream is held back until the
+	// demodulator settles; see settleFrontendName.
+	settle bool
 }
 
 func Open(options Options) (Device, error) {
@@ -67,8 +70,9 @@ func Open(options Options) (Device, error) {
 		demuxPath: filepath.Join(adapterRoot, fmt.Sprintf("demux%d", options.Demux)),
 		dvrPath:   filepath.Join(adapterRoot, fmt.Sprintf("dvr%d", options.DVR)),
 	}
-	if low, high, rangeErr := frontend.FrequencyRange(); rangeErr == nil {
-		device.frequencyMin, device.frequencyMax = low, high
+	if info, infoErr := frontend.Info(); infoErr == nil {
+		device.frequencyMin, device.frequencyMax = info.FrequencyMin, info.FrequencyMax
+		device.settle = info.Name == settleFrontendName
 	}
 	if systems, enumErr := frontend.DeliverySystems(); enumErr == nil {
 		device.supported = make(map[uint32]bool, len(systems))
@@ -212,7 +216,11 @@ func (device *linuxDVBDevice) OpenStream() (Stream, error) {
 		dvb.StopDemux(demux)
 		return nil, fmt.Errorf("open DVR %s: %w", device.dvrPath, err)
 	}
-	return &linuxDVBStream{demux: demux, dvr: dvr}, nil
+	stream := &linuxDVBStream{demux: demux, dvr: dvr}
+	if device.settle {
+		return newSettlingStream(stream), nil
+	}
+	return stream, nil
 }
 
 type linuxDVBStream struct {
