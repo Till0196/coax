@@ -43,9 +43,19 @@ func Owns(one pool.Detected) bool {
 // Recover puts back any tuner a previous run was killed while holding and
 // reports how many it repaired, asking the hardware rather than remembering
 // across runs. The capture files such a run left behind go too.
+//
+// The repair opens graphs, so it runs in the host process like every other
+// graph. A machine with no TBS card has nothing to repair and starts no host.
 func Recover() int {
 	bda.RemoveLeftovers()
-	return tbs.Recover()
+	if cards, err := tbs.Devices(); err != nil || len(cards) == 0 {
+		return 0
+	}
+	var repaired int
+	if err := hostCall("Recover", struct{}{}, &repaired); err != nil {
+		return 0
+	}
+	return repaired
 }
 
 // Recovering names the backends Recover touches. Nothing else waits for it:
@@ -192,13 +202,42 @@ func shortName(selector string) string {
 	return fmt.Sprintf("%016x", sum.Sum64())
 }
 
-// Open builds a graph on one tuner. All COM runs on a thread of this board's
-// own, for the board's whole life; see comThread.
+// Open builds a graph on one tuner.
+//
+// A BDA tuner is opened in the host process, never here: see host_windows.go.
+// The Earthsoft cards are not BDA and are opened here.
 func Open(one pool.Detected, _ device.Options) (device.Board, error) {
+	var opened openedDevice
+	var err error
+	if hosted(one) {
+		opened, err = openHosted(one.Backend, one.Selector)
+	} else {
+		opened, err = openHere(one.Backend, one.Selector)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &board{
+		name:   one.Name,
+		tuner:  device.TunerInfo{Index: 0, Name: one.Description, Deliveries: one.Deliveries, Mode: opened.mode, Settings: opened.settings},
+		device: &tuner{receiver: opened.device, deliveries: one.Deliveries},
+	}, nil
+}
+
+// openedDevice is a tuner just opened, with what it said about itself then.
+type openedDevice struct {
+	device   receiver.Device
+	mode     string
+	settings []device.Setting
+}
+
+// openHere opens a tuner in this process. All COM runs on a thread of the
+// tuner's own, for its whole life; see comThread.
+func openHere(backend, selector string) (openedDevice, error) {
 	thread := startCOMThread()
 	var claimed receiver.Device
 	err := thread.do(func() error {
-		opened, err := receiver.Open(receiver.Options{Backend: one.Backend, Device: one.Selector})
+		opened, err := receiver.Open(receiver.Options{Backend: backend, Device: selector})
 		if err != nil {
 			return err
 		}
@@ -207,7 +246,7 @@ func Open(one pool.Detected, _ device.Options) (device.Board, error) {
 	})
 	if err != nil {
 		thread.stop()
-		return nil, err
+		return openedDevice{}, err
 	}
 	// The delivery systems come from the listing; opening the tuner does not make
 	// them better known. Leaving them out here once left `coax list --tuners`,
@@ -229,11 +268,7 @@ func Open(one pool.Detected, _ device.Options) (device.Board, error) {
 			return nil
 		})
 	}
-	return &board{
-		name:   one.Name,
-		tuner:  device.TunerInfo{Index: 0, Name: one.Description, Deliveries: one.Deliveries, Mode: mode, Settings: settings},
-		device: &tuner{receiver: &onThread{device: claimed, thread: thread}, deliveries: one.Deliveries},
-	}, nil
+	return openedDevice{device: &onThread{device: claimed, thread: thread}, mode: mode, settings: settings}, nil
 }
 
 // onThread is a receiver device whose calls all run on the board's COM thread.

@@ -38,6 +38,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/build"
 	"github.com/Till0196/coax/internal/coaxd/host/daemon"
+	"github.com/Till0196/coax/internal/coaxd/host/native"
 	"github.com/Till0196/coax/internal/coaxd/host/pool"
 	"github.com/Till0196/coax/internal/coaxd/trace"
 	"github.com/Till0196/coax/internal/idle"
@@ -64,6 +65,10 @@ func main() {
 func run(arguments []string, stdout, stderr *os.File) error {
 	if len(arguments) != 0 {
 		switch arguments[0] {
+		case native.HostCommand:
+			// Its diagnostics go to the daemon, which writes them where its own go.
+			trace.SetOutput(stderr)
+			return native.ServeHost(os.Stdin, stdout)
 		case "load-asv52xx-firmware", "load-px3-firmware":
 			return runLoadASV52xxFirmware(arguments[0], arguments[1:], stdout, stderr)
 		case "help", "-h", "--help":

@@ -43,3 +43,13 @@ func Printf(format string, arguments ...any) {
 	}
 	fmt.Fprintf(output, "%s %s\n", time.Now().Format("2006-01-02 15:04:05.000"), fmt.Sprintf(format, arguments...))
 }
+
+// Forward writes a line another process already stamped, as it came.
+func Forward(line string) {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if output == nil {
+		return
+	}
+	fmt.Fprintln(output, line)
+}
