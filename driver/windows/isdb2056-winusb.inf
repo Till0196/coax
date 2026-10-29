@@ -29,6 +29,7 @@ DriverVer   = 09/05/2026,1.0.0.0
 [WinUSBInstall]
 Include = winusb.inf
 Needs   = WINUSB.NT
+AddProperty = DeviceSetup.AddProperty
 
 [WinUSBInstall.Services]
 Include = winusb.inf
@@ -39,6 +40,10 @@ AddReg = DeviceInterfaceGUID
 
 [DeviceInterfaceGUID]
 HKR,,DeviceInterfaceGUIDs,0x10000,"{2979184D-619D-480A-8F5D-13B5E89A67DF}"
+
+[DeviceSetup.AddProperty]
+; DEVPKEY_Device_SafeRemovalRequiredOverride = FALSE
+{afd97640-86a3-4210-b67c-289c41aabe55},3,0x00000011,,0
 
 [Strings]
 ProviderName     = "coax"
