@@ -26,13 +26,15 @@ import (
 
 // Session is one running graph.
 type Session struct {
+	// system is the acquisition standard selected for this graph.
+	system  string
 	graph   *directshow.IGraphBuilder
 	control *directshow.IMediaControl
 	// events is the graph's event queue. A BDA graph that fails while running
 	// keeps answering "running" and reports the failure only here.
 	events *directshow.IMediaEvent
-	// tuner is the tuner filter, kept because its input pin carries the card's
-	// vendor properties: the demodulator mode and the raw I2C bus.
+	// tuner is the tuner filter, kept because its pins carry the card's vendor
+	// properties, including acquisition control and the raw I2C bus.
 	tuner    *directshow.IBaseFilter
 	pin      *directshow.IPin
 	property *vendors.PinProperties
@@ -61,6 +63,9 @@ type Session struct {
 	// vendor properties on it rather than on the tuner.
 	captureFilter *directshow.IBaseFilter
 }
+
+// System is the acquisition standard selected for this graph.
+func (session *Session) System() string { return session.system }
 
 // Spool is what the captured stream is being written to.
 func (session *Session) Spool() *Spool { return session.spool }

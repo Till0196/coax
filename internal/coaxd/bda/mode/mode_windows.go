@@ -6,8 +6,8 @@
 // Package mode is how one card family is told which standard to be.
 //
 // A TBS card keeps one setting for the whole card in its EEPROM and must be told
-// to change it; a Digital Devices card offers a separate filter per standard, so
-// opening the right one is the whole of it; most cards have no such setting.
+// to change it; a Digital Devices card can select a standard on its connected
+// transport pin; most cards have no such setting.
 //
 // What the values mean is vendor knowledge, in the vendors package. This is only
 // the dispatch and the glue that reaches a card's properties through a graph.

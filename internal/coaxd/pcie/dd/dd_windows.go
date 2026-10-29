@@ -3,14 +3,8 @@
 
 //go:build windows
 
-// Package dd drives a Digital Devices PCIe card's tuners itself, using the
-// vendor's Windows driver only to carry the transport stream.
-//
-// These cards put a command interface in the bridge's register window and a
-// firmware behind it: a tune is one message with a frequency in it. There is no
-// demodulator on a bus this side can reach, so unlike the TBS backend there is
-// no chip driver to carry. The vendor's base driver hands the register window
-// to user mode as it stands, so reaching the interface costs one CreateFile.
+// Package dd selects Digital Devices acquisition standards through the Windows
+// driver and uses the board's register interface for identification and supply.
 package dd
 
 import (
@@ -40,41 +34,6 @@ type model struct {
 	inputConfig int
 }
 
-// The card's tuners appear to BDA once per standard rather than once each: a
-// four-tuner MAX M4 offers twelve filters. They are faces of the same hardware,
-// and a graph only connects to the network type the face it was opened through
-// advertises, so the channel a graph is built against has to match the face. It
-// is a formality either way; what the card receives is settled by the command
-// after.
-//
-// faceCarriers is that formality for a face whose own standard the BDA layer
-// can express, preferred over the family default.
-var faceCarriers = map[string]map[string]string{
-	"ISDB-T":  {"DELIVERY_SYSTEM": "ISDBT", "FREQUENCY": "473142857", "BANDWIDTH_HZ": "6000000"},
-	"ISDB-C":  {"DELIVERY_SYSTEM": "ISDBC", "FREQUENCY": "111000000", "SYMBOL_RATE": "5274"},
-	"ISDB-S":  {"DELIVERY_SYSTEM": "ISDBS", "FREQUENCY": "1049480", "STREAM_ID": "16400"},
-	"DVB-T":   {"DELIVERY_SYSTEM": "DVBT", "FREQUENCY": "474000000", "BANDWIDTH_HZ": "8000000"},
-	"DVB-T2":  {"DELIVERY_SYSTEM": "DVBT2", "FREQUENCY": "474000000", "BANDWIDTH_HZ": "8000000"},
-	"DVB-C":   {"DELIVERY_SYSTEM": "DVBC", "FREQUENCY": "474000000", "SYMBOL_RATE": "6900"},
-	"J83-B":   {"DELIVERY_SYSTEM": "DVBC/ANNEX_B", "FREQUENCY": "111000000", "SYMBOL_RATE": "5274"},
-	"DVB-S2":  {"DELIVERY_SYSTEM": "DVBS2", "FREQUENCY": "1049480", "SYMBOL_RATE": "28860"},
-	"DVB-S2X": {"DELIVERY_SYSTEM": "DVBS2", "FREQUENCY": "1049480", "SYMBOL_RATE": "28860"},
-}
-
-// carriers is the fallback, for a face whose own standard the BDA layer has no
-// delivery system for -- DVB-C2 is the one.
-var carriers = map[family]map[string]string{
-	familyTerrestrial: {
-		"DELIVERY_SYSTEM": "DVBT", "FREQUENCY": "474000000", "BANDWIDTH_HZ": "8000000",
-	},
-	familyCable: {
-		"DELIVERY_SYSTEM": "DVBC", "FREQUENCY": "474000000", "SYMBOL_RATE": "6900",
-	},
-	familySatellite: {
-		"DELIVERY_SYSTEM": "DVBS2", "FREQUENCY": "1049480", "SYMBOL_RATE": "28860",
-	},
-}
-
 // family is which of the three faces a BDA tuner is.
 type family int
 
@@ -101,16 +60,6 @@ var tunerFaces = map[string]family{
 	"DVB-S2":            familySatellite,
 	"DVB-S2X":           familySatellite,
 	"ISDB-S":            familySatellite,
-}
-
-// carrierFor is the channel a tuner's graph is built against.
-func carrierFor(name string) (map[string]string, bool) {
-	label := tunerLabel(name)
-	if carrier, ok := faceCarriers[label]; ok {
-		return carrier, true
-	}
-	carrier, ok := carriers[tunerFaces[label]]
-	return carrier, ok
 }
 
 // familyOf reads the face out of a tuner's name, which the vendor driver builds
@@ -148,8 +97,8 @@ func tunerLabel(name string) string {
 //
 // What each firmware searches for is what the card was built for. The M8 ATSC
 // and the M8E ask their own firmware rather than being told, so their real
-// lists differ from these; ATSC is left out of both regardless, this backend
-// having no search command for it. Nothing here does ISDB-S3.
+// lists differ from these; ATSC is left out because the tuning profile does not
+// carry it. Nothing here does ISDB-S3.
 var models = []model{
 	{
 		name:  "Digital Devices MAX SX8",
@@ -349,19 +298,15 @@ func Devices() ([]Found, error) {
 		one := grouped[at]
 		if one == nil {
 			one = &Found{
-				Name:     fmt.Sprintf("%s Tuner %d", card.name, at.demod+1),
-				Selector: tuner.Selector,
-				Faces:    map[string]string{},
+				Name:       fmt.Sprintf("%s Tuner %d", card.name, at.demod+1),
+				Selector:   tuner.Selector,
+				Faces:      map[string]string{},
+				Deliveries: append([]string(nil), card.deliveries...),
 			}
 			grouped[at] = one
 			order = append(order, at)
 		}
 		one.Faces[label] = tuner.Selector
-		for _, delivery := range offered {
-			if !contains(one.Deliveries, delivery) {
-				one.Deliveries = append(one.Deliveries, delivery)
-			}
-		}
 	}
 	found := make([]Found, 0, len(order))
 	for _, at := range order {
@@ -434,10 +379,6 @@ type Device struct {
 	recent      Status
 	recentAt    time.Time
 	recentValid bool
-	// commanded is whether this tuner was pointed at its channel through the
-	// command interface rather than by the vendor's own filter, and so whether
-	// stopping it on the way out is this side's business.
-	commanded bool
 	// faces is the moniker of every filter this demodulator has, by the standard
 	// each offers; label is the one the transport is open through.
 	faces map[string]string
@@ -549,14 +490,20 @@ func (device *Device) Name() string {
 // banner. Which commands the card answers depends on it.
 func (device *Device) Firmware() string { return device.firmware }
 
-// Supports reports whether this tuner can hand over a delivery system, which is
-// narrower than what the card can receive: see faceDeliveries.
+// Supports follows the card's firmware, independently of which filters the
+// Windows driver has published for it.
 func (device *Device) Supports(deliverySystem string) bool {
-	if len(device.faces) == 0 {
-		return faceOffers(device.label, deliverySystem)
+	switch tuning.Normalize(deliverySystem) {
+	case "J83A":
+		deliverySystem = "DVBC"
+	case "J83B":
+		deliverySystem = "DVBC/ANNEXB"
+	case "J83C":
+		deliverySystem = "ISDBC"
 	}
-	for label := range device.faces {
-		if faceOffers(label, deliverySystem) {
+	for _, delivery := range device.model.deliveries {
+		if tuning.Normalize(delivery) == tuning.Normalize(deliverySystem) ||
+			(cableAlias(delivery) && cableAlias(deliverySystem)) {
 			return true
 		}
 	}
@@ -565,21 +512,17 @@ func (device *Device) Supports(deliverySystem string) bool {
 
 // Tune points the card at a channel.
 //
-// The graph comes up first and is built against a formality, as in the TBS
-// backend: the vendor driver connects a graph only for the network type it
-// advertises, and what the card receives is settled by the command that
-// follows.
+// The driver owns acquisition and transport gating for every standard.
 func (device *Device) Tune(properties map[string]string) error {
-	// The graph carries a stream only once the vendor's tuner filter is happy, so a
-	// filter that offers the standard asked for is left to do the tune. The
-	// measurements still come from the command interface, which is the point of this
-	// backend: BDA has no carrier-to-noise ratio at all.
+	if !device.Supports(properties["DELIVERY_SYSTEM"]) {
+		return fmt.Errorf("DD delivery system %q is unsupported", properties["DELIVERY_SYSTEM"])
+	}
+
 	if err := device.faceFor(properties["DELIVERY_SYSTEM"]); err != nil {
 		return err
 	}
-	// Neither path below sets the supply on the aerial lead: the command interface
-	// has nothing to say about it, and the BDA tune request carries a polarization
-	// but no tone. So it is driven here for both.
+	// Supply and tone are applied through the board's registers before the
+	// channel is handed to the driver.
 	if tuning.IsSatellite(properties["DELIVERY_SYSTEM"]) {
 		supply, err := tuning.SatelliteSupply(properties)
 		if err != nil {
@@ -592,41 +535,10 @@ func (device *Device) Tune(properties map[string]string) error {
 			return err
 		}
 	}
-	if device.faceOffers(properties) {
-		// The supply was set above; the BDA filter is not asked for it (a BDA
-		// driver's supply is its own, and it refuses one switched off).
-		if err := device.transport.Tune(bda.WithoutSupply(properties)); err != nil {
-			return err
-		}
-		device.tuned = tuning.Normalize(properties["DELIVERY_SYSTEM"])
-		device.forgetReading()
-		return nil
-	}
-
-	// Otherwise the standard has no filter of its own on this card: the graph is a
-	// formality and the card is pointed at the real channel through the command.
-	command, err := searchFor(properties)
-	if err != nil {
-		return err
-	}
-	command.demod = device.demod
-	command.output = device.demod
-
-	if err := device.bridge.ensureInputConfig(device.card, device.model.inputConfig); err != nil {
-		return err
-	}
-	if err := device.startTransport(); err != nil {
-		return err
-	}
-	result, err := device.bridge.execute(device.card, command)
-	if err != nil {
-		return err
-	}
-	if err := result.err("tune"); err != nil {
+	if err := device.transport.Tune(bda.WithoutSupply(properties)); err != nil {
 		return err
 	}
 	device.tuned = tuning.Normalize(properties["DELIVERY_SYSTEM"])
-	device.commanded = true
 	device.forgetReading()
 	return nil
 }
@@ -638,21 +550,33 @@ func (device *Device) forgetReading() {
 	device.recentMutex.Unlock()
 }
 
-// faceFor puts the transport on the filter that offers a standard, which is what
-// makes one demodulator answer to everything its filters offer between them.
+// faceFor prefers a shared satellite network, otherwise retaining a usable
+// filter for this tuner's acquisition nodes.
 func (device *Device) faceFor(deliverySystem string) error {
-	if len(device.faces) == 0 || faceOffers(device.label, deliverySystem) {
+	if len(device.faces) == 0 {
 		return nil
 	}
 	label, selector := "", ""
-	for candidate, moniker := range device.faces {
-		if faceOffers(candidate, deliverySystem) {
+	// One satellite network can carry every acquisition standard on the tuner.
+	// Prefer it so an unpublished ISDB or cable filter is never required.
+	for _, candidate := range []string{"DVB-S2", "DVB-S2X"} {
+		if moniker := device.faces[candidate]; moniker != "" {
 			label, selector = candidate, moniker
 			break
 		}
 	}
 	if selector == "" {
-		// No filter of this tuner offers it. The command interface may still reach it.
+		if faceOffers(device.label, deliverySystem) {
+			return nil
+		}
+		for candidate, moniker := range device.faces {
+			if faceOffers(candidate, deliverySystem) {
+				label, selector = candidate, moniker
+				break
+			}
+		}
+	}
+	if selector == "" || label == device.label {
 		return nil
 	}
 	opened, err := bda.Open(selector)
@@ -665,12 +589,6 @@ func (device *Device) faceFor(deliverySystem string) error {
 	device.face = familyOf(opened.Name())
 	device.forgetReading()
 	return nil
-}
-
-// faceOffers reports whether the filter this tuner was opened through is for the
-// standard being asked for.
-func (device *Device) faceOffers(properties map[string]string) bool {
-	return faceOffers(device.label, properties["DELIVERY_SYSTEM"])
 }
 
 // faceOffers reports whether a filter labelled label is the one for a delivery
@@ -686,30 +604,30 @@ func faceOffers(label, deliverySystem string) bool {
 		return true
 	}
 	switch label {
+	case "DVB-T":
+		return wanted == "ISDBT"
 	case "DVB-T2":
-		return wanted == "DVBT"
+		return wanted == "DVBT" || wanted == "ISDBT"
 	case "DVB-S2", "DVB-S2X":
 		return wanted == "DVBS"
-	case "DVB-C", "DVB-C MEDIACENTER":
-		return wanted == "DVBC/ANNEXA"
+	case "DVB-C", "DVB-C MEDIACENTER", "ISDB-C":
+		return cableAlias(deliverySystem)
 	case "J83-B":
 		return wanted == "DVBC/ANNEXB"
-	case "ISDB-C":
-		// The card's own driver runs Annex C and ISDB-C through one search, and the
-		// vendor's filter is labelled for the Japanese name alone.
-		return wanted == "DVBC/ANNEXC"
 	}
 	return false
 }
 
-// faceDeliveries is the part of what a card can receive that one of its tuners
-// will actually hand over.
-//
-// The firmware searches for far more standards than the filter in front of a
-// tuner admits to, and the command interface does tune such a channel -- but no
-// stream follows: the vendor's capture filter releases data only once its own
-// tuner reports lock, and that tuner is looking at the formality the graph was
-// built on.
+func cableAlias(system string) bool {
+	switch tuning.Normalize(system) {
+	case "DVBC", "DVBC/ANNEXA", "DVBC/ANNEXC", "ISDBC":
+		return true
+	}
+	return false
+}
+
+// faceDeliveries identifies a published filter by its native network family.
+// The acquisition nodes can receive other standards independently of that name.
 func faceDeliveries(name string, cardDeliveries []string) []string {
 	label := tunerLabel(name)
 	var offered []string
@@ -719,21 +637,6 @@ func faceDeliveries(name string, cardDeliveries []string) []string {
 		}
 	}
 	return offered
-}
-
-func (device *Device) startTransport() error {
-	carrier, ok := carrierFor(device.transport.Name())
-	if !ok {
-		return fmt.Errorf("%q does not say which standard its filter offers", device.transport.Name())
-	}
-	profile, err := bda.BuildTuneProfile(carrier)
-	if err != nil {
-		return err
-	}
-	if err := device.transport.StartTransport(profile); err != nil {
-		return fmt.Errorf("start the card's transport: %w", err)
-	}
-	return nil
 }
 
 // Settings is what the driver says about how the signal is being demodulated. It
@@ -747,13 +650,11 @@ func (device *Device) Status() (Status, error) {
 	defer device.recentMutex.Unlock()
 	// A tuner the vendor's own filter is driving has a driver that will say what
 	// it is measuring, free of the hazard the mailbox carries.
-	if !device.commanded {
-		if status, ok := device.driverStatus(); ok {
-			device.recent, device.recentAt, device.recentValid = status, time.Now(), true
-			return status, nil
-		}
+	if status, ok := device.driverStatus(); ok {
+		device.recent, device.recentAt, device.recentValid = status, time.Now(), true
+		return status, nil
 	}
-	if device.transport.Streaming() {
+	if device.transport.TransportLive() {
 		return device.streamingStatus(), nil
 	}
 	if device.recentValid && time.Since(device.recentAt) < statusInterval {
@@ -882,15 +783,7 @@ func (device *Device) OpenStream() (*bda.Stream, error) {
 // nothing to hand back: the vendor driver keeps no state this backend took
 // away.
 func (device *Device) Close() error {
-	device.recentMutex.Lock()
-	commanded := device.commanded
-	device.recentMutex.Unlock()
 	if device.bridge != nil {
-		if commanded {
-			_, _ = device.bridge.execute(device.card, &mciCommand{
-				command: cmdStop, demod: device.demod,
-			})
-		}
 		// Before the register window goes, that being what the supply is switched
 		// through.
 		device.releaseLNB()

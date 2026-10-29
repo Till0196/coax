@@ -4,8 +4,8 @@
 //go:build windows
 
 // Package dd is what this host knows about Digital Devices' private interface:
-// two property sets on a tuner filter, one that says what the tuner is and can
-// be made to be, and one that says what its demodulator is measuring.
+// the tuner descriptor and measurements on the filter, and acquisition control
+// on the connected transport pin.
 package dd
 
 import (

@@ -110,6 +110,12 @@ type AM_MEDIA_TYPE struct {
 
 // The identifiers this program asks for by name.
 var (
+	IID_IBDA_DeviceControl = win32.GUID{Data1: 0xfd0a5af3, Data2: 0xb41d, Data3: 0x11d2,
+		Data4: [8]byte{0x9c, 0x95, 0, 0xc0, 0x4f, 0x79, 0x71, 0xe0}}
+	IID_IBDA_FrequencyFilter = win32.GUID{Data1: 0x71985f47, Data2: 0x1ca1, Data3: 0x11d3,
+		Data4: [8]byte{0x9c, 0xc8, 0, 0xc0, 0x4f, 0x79, 0x71, 0xe0}}
+	IID_IBDA_LNBInfo = win32.GUID{Data1: 0x992cf102, Data2: 0x49f9, Data3: 0x4719,
+		Data4: [8]byte{0xa6, 0x64, 0xc4, 0xf2, 0x3e, 0x24, 8, 0xf4}}
 	IID_IBaseFilter = win32.GUID{Data1: 0x56a86895, Data2: 0x0ad4, Data3: 0x11ce,
 		Data4: [8]byte{0xb0, 0x3a, 0x00, 0x20, 0xaf, 0x0b, 0xa7, 0x70}}
 	IID_IBDA_DigitalDemodulator = win32.GUID{Data1: 0xef30f379, Data2: 0x985b, Data3: 0x4d10,
@@ -143,6 +149,9 @@ var (
 // each is the base interface and a set of methods that call by slot.
 type (
 	IBaseFilter             struct{ win32.IUnknown }
+	IBDA_DeviceControl      struct{ win32.IUnknown }
+	IBDA_FrequencyFilter    struct{ win32.IUnknown }
+	IBDA_LNBInfo            struct{ win32.IUnknown }
 	IBDA_DigitalDemodulator struct{ win32.IUnknown }
 	IBDA_DiseqCommand       struct{ win32.IUnknown }
 	IBDA_SignalStatistics   struct{ win32.IUnknown }
@@ -454,4 +463,64 @@ func wide(value int64) []uintptr {
 		return []uintptr{uintptr(value)}
 	}
 	return []uintptr{uintptr(uint32(value)), uintptr(uint32(uint64(value) >> 32))}
+}
+
+func (self *IBDA_DeviceControl) StartChanges() error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[3], uintptr(unsafe.Pointer(self)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_DeviceControl) CheckChanges() error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[4], uintptr(unsafe.Pointer(self)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_DeviceControl) CommitChanges() error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[5], uintptr(unsafe.Pointer(self)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_FrequencyFilter) Put_FrequencyMultiplier(value uint32) error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[13], uintptr(unsafe.Pointer(self)), uintptr(uint32(value)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_FrequencyFilter) Put_Frequency(value uint32) error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[5], uintptr(unsafe.Pointer(self)), uintptr(uint32(value)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_FrequencyFilter) Put_Bandwidth(value uint32) error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[11], uintptr(unsafe.Pointer(self)), uintptr(uint32(value)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_FrequencyFilter) Put_Polarity(value Polarisation) error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[7], uintptr(unsafe.Pointer(self)), uintptr(uint32(value)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_LNBInfo) Put_LocalOscillatorFrequencyLowBand(value uint32) error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[3], uintptr(unsafe.Pointer(self)), uintptr(uint32(value)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_LNBInfo) Put_LocalOscillatorFrequencyHighBand(value uint32) error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[5], uintptr(unsafe.Pointer(self)), uintptr(uint32(value)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_LNBInfo) Put_HighLowSwitchFrequency(value uint32) error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[7], uintptr(unsafe.Pointer(self)), uintptr(uint32(value)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_DigitalDemodulator) Put_ModulationType(value *ModulationType) error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[3], uintptr(unsafe.Pointer(self)), uintptr(unsafe.Pointer(value)))
+	return win32.ErrIfFailed(int32(result))
+}
+
+func (self *IBDA_DigitalDemodulator) Put_SpectralInversion(value *int32) error {
+	result, _, _ := syscall.SyscallN(self.LpVtbl[15], uintptr(unsafe.Pointer(self)), uintptr(unsafe.Pointer(value)))
+	return win32.ErrIfFailed(int32(result))
 }

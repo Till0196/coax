@@ -37,15 +37,16 @@ var iidControl = win32.GUID{
 
 // The KSPROPERTY flags that say what a request is for.
 const (
-	typeGet = 0x00000001
-	typeSet = 0x00000002
+	typeGet      = 0x00000001
+	typeSet      = 0x00000002
+	typeTopology = 0x10000000
 )
 
 // requestBytes is how large a request these items expect.
 const requestBytes = 32
 
-// Control is IKsControl on a filter, which is how a vendor's own items are
-// reached without a graph.
+// Control is IKsControl on a filter or connected pin. A pin's topology nodes
+// become available once the graph is connected.
 type Control struct{ vtbl *[6]uintptr }
 
 func (control *Control) Release() {
@@ -115,11 +116,35 @@ func (control *Control) Set(set win32.GUID, id uint32, data []byte) error {
 	return nil
 }
 
+// SetNode addresses a property on a topology node rather than the filter.
+func (control *Control) SetNode(set win32.GUID, id, node uint32, data []byte) error {
+	var request [requestBytes]byte
+	putProperty(request[:], &set, id, typeSet|typeTopology)
+	binary.LittleEndian.PutUint32(request[24:], node)
+	var returned uint32
+	result, _, _ := syscall.SyscallN(control.vtbl[3], uintptr(unsafe.Pointer(control)),
+		uintptr(unsafe.Pointer(&request[0])), uintptr(len(request)),
+		uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)), uintptr(unsafe.Pointer(&returned)))
+	if int32(result) < 0 {
+		return fmt.Errorf("write node %d property %d: HRESULT 0x%08X", node, id, uint32(result))
+	}
+	return nil
+}
+
 // Filter is the tuner filter's IKsControl. The caller owns it.
 func Filter(filter *directshow.IBaseFilter) (*Control, error) {
 	var unknown *win32.IUnknown
 	if err := filter.QueryInterface(&iidControl, &unknown); err != nil || unknown == nil {
 		return nil, fmt.Errorf("the BDA tuner filter offers no IKsControl")
+	}
+	return (*Control)(unsafe.Pointer(unknown)), nil
+}
+
+// PinControl addresses KS requests on a connected pin.
+func PinControl(pin *directshow.IPin) (*Control, error) {
+	var unknown *win32.IUnknown
+	if err := pin.QueryInterface(&iidControl, &unknown); err != nil || unknown == nil {
+		return nil, fmt.Errorf("the BDA pin offers no IKsControl")
 	}
 	return (*Control)(unsafe.Pointer(unknown)), nil
 }
