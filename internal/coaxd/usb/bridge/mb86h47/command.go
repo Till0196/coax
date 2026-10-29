@@ -103,6 +103,7 @@ func (bridge *Bridge) commandSetupLocked() {
 		}
 	}
 	bridge.commandHeld = bridge.commandHeld[:0]
+	bridge.commandUnanswered = false
 	bridge.command = true
 	if _, err := bridge.commandSendLocked(true); err != nil {
 		bridge.command = false
@@ -159,8 +160,12 @@ func (bridge *Bridge) commandSendLocked(answer bool) ([]uint32, error) {
 	bridge.commandSequence++
 	bridge.commandSlot++
 	if !answer {
+		bridge.commandUnanswered = true
 		return nil, nil
 	}
+	// Core 1 takes the slots in order, so an answer means every packet
+	// before this one is done too.
+	bridge.commandUnanswered = false
 
 	message := make([]byte, 64)
 	deadline := time.Now().Add(commandTimeoutMS * time.Millisecond)

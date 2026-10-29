@@ -85,7 +85,7 @@ func (bridge *Bridge) cardClear(address, bits uint32) {
 
 // cardPause waits once what is held back has reached the chip.
 func (bridge *Bridge) cardPause(duration time.Duration) {
-	bridge.flushLocked()
+	bridge.keepLocked(bridge.ringDrainLocked())
 	time.Sleep(duration)
 }
 

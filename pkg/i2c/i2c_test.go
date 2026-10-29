@@ -64,3 +64,35 @@ func TestMask(t *testing.T) {
 		}
 	}
 }
+
+type flushingBus struct{ recordingBus }
+
+func (bus *flushingBus) Flush() error {
+	bus.events = append(bus.events, "flush")
+	return nil
+}
+
+type drainingBus struct{ flushingBus }
+
+func (bus *drainingBus) Drain() error {
+	bus.events = append(bus.events, "drain")
+	return nil
+}
+
+func TestWaitDrainsWhereItCan(t *testing.T) {
+	flushing := &flushingBus{}
+	if err := Wait(flushing, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(flushing.events) != 1 || flushing.events[0] != "flush" {
+		t.Errorf("a master that can only flush: %v", flushing.events)
+	}
+
+	draining := &drainingBus{}
+	if err := Wait(draining, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(draining.events) != 1 || draining.events[0] != "drain" {
+		t.Errorf("a master that can drain: %v", draining.events)
+	}
+}

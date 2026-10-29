@@ -294,6 +294,9 @@ func (bridge *Bridge) ringFlushLocked() error {
 // ringDrainLocked sends what is held back and waits for core 1 to finish it.
 func (bridge *Bridge) ringDrainLocked() error {
 	if bridge.command {
+		if len(bridge.commandHeld) == 0 && !bridge.commandUnanswered {
+			return bridge.err
+		}
 		_, err := bridge.commandSendLocked(true)
 		return err
 	}
@@ -494,4 +497,13 @@ func (bridge *Bridge) Flush() error {
 	defer bridge.mu.Unlock()
 	bridge.err = nil
 	return bridge.ringFlushLocked()
+}
+
+// Drain sends what is held back and, unlike Flush, returns only once core 1 has
+// put it on the bus.
+func (bridge *Bridge) Drain() error {
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	bridge.err = nil
+	return bridge.ringDrainLocked()
 }

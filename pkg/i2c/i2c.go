@@ -51,11 +51,22 @@ type Idler interface {
 	Idle(until time.Time)
 }
 
+// Drainer is implemented by masters that can wait until the writes they hold
+// back have been carried out, not only sent.
+type Drainer interface {
+	Drain() error
+}
+
 // Wait is a driver's wait on the hardware: once what the master holds back has
-// been sent, it lasts duration, and a master with work of its own may do that
-// work in it.
+// reached the hardware, it lasts duration, and a master with work of its own
+// may do that work in it.
 func Wait(bus Bus, duration time.Duration) error {
-	err := Flush(bus)
+	var err error
+	if drainer, ok := bus.(Drainer); ok {
+		err = drainer.Drain()
+	} else {
+		err = Flush(bus)
+	}
 	until := time.Now().Add(duration)
 	if idler, ok := bus.(Idler); ok {
 		idler.Idle(until)

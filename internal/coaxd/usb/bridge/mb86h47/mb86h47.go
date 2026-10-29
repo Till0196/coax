@@ -79,10 +79,13 @@ type Bridge struct {
 	// command is set while the command channel carries the ring's
 	// accesses (command.go): commandSequence numbers the next packet,
 	// commandSlot is its slot and commandHeld the accesses for it.
-	command         bool
-	commandSequence uint32
-	commandSlot     uint32
-	commandHeld     []uint32
+	// commandUnanswered is set while a packet sent without asking for an
+	// answer may still be being carried out.
+	command           bool
+	commandSequence   uint32
+	commandSlot       uint32
+	commandHeld       []uint32
+	commandUnanswered bool
 
 	// jobSequence numbers the last job given to core 1 (job.go); spinRate is its
 	// wait loop's passes a second, once measured.
