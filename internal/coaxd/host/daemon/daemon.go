@@ -354,7 +354,8 @@ func listenPublic(supervisor *pool.Supervisor, provider *usbcard.Provider, optio
 		Port:    true,
 		AnyHost: options.AllowRemote,
 	})
-	listener, err := net.Listen("tcp", options.Public)
+	config := publicListenConfig()
+	listener, err := config.Listen(context.Background(), "tcp", options.Public)
 	if err != nil {
 		return hosted{}, nil, fmt.Errorf("listen on %s: %w", options.Public, err)
 	}
@@ -362,6 +363,13 @@ func listenPublic(supervisor *pool.Supervisor, provider *usbcard.Provider, optio
 	host.Attach(httpServer)
 	options.Report("also serving http://" + options.Public)
 	return hosted{Server: httpServer, host: host}, listener, nil
+}
+
+// Go listens with Multipath TCP by default on Linux, which coaxd does not use.
+func publicListenConfig() net.ListenConfig {
+	var config net.ListenConfig
+	config.SetMultipathTCP(false)
+	return config
 }
 
 // readHeaderTimeout is how long a client has to finish saying what it wants.
