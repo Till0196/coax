@@ -15,7 +15,7 @@ import (
 //
 //	go build -ldflags "-X github.com/Till0196/coax/pkg/cli.version=0.2.0 -X github.com/Till0196/coax/pkg/cli.commit=$(git rev-parse HEAD)"
 var (
-	version = "0.1.1"
+	version = "0.1.2"
 	commit  = ""
 )
 

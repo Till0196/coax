@@ -65,7 +65,7 @@ builds:
     flags:
       - "-trimpath"
     ldflags:
-      - -s -w
+      - -s -w -X github.com/Till0196/coax/pkg/cli.version={{.Version}} -X github.com/Till0196/coax/pkg/cli.commit={{.FullCommit}}
   - id: coax-darwin
     main: ./cmd/coax
     binary: coax
@@ -79,7 +79,7 @@ builds:
     flags:
       - "-trimpath"
     ldflags:
-      - -s -w
+      - -s -w -X github.com/Till0196/coax/pkg/cli.version={{.Version}} -X github.com/Till0196/coax/pkg/cli.commit={{.FullCommit}}
   - id: coax-windows
     main: ./cmd/coax
     binary: coax
@@ -93,7 +93,7 @@ builds:
     flags:
       - "-trimpath"
     ldflags:
-      - -s -w
+      - -s -w -X github.com/Till0196/coax/pkg/cli.version={{.Version}} -X github.com/Till0196/coax/pkg/cli.commit={{.FullCommit}}
   - id: fwextract-linux
     main: ./cmd/fwextract
     binary: fwextract
