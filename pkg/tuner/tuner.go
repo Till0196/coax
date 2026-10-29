@@ -66,6 +66,8 @@ type Stream interface {
 type Bounds struct {
 	Bytes int
 	For   time.Duration
+	// Wait bounds the wait for the first byte, including opening the stream.
+	Wait time.Duration
 }
 
 // Device is one tuner.

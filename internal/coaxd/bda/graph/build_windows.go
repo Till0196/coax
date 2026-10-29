@@ -18,6 +18,7 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/bda/filters"
 	"github.com/Till0196/coax/internal/coaxd/bda/sink"
 	"github.com/Till0196/coax/internal/coaxd/bda/tuning"
+	"github.com/Till0196/coax/internal/coaxd/bda/vendors/dd"
 )
 
 // networkProvider is one candidate for the filter that drives the tuner.
@@ -60,7 +61,7 @@ type Options struct {
 // success the card is held; Session.Close lets go of it again.
 func Build(options Options) (*Session, error) {
 	var failures []string
-	for _, provider := range networkProviders(options.Profile.Delivery) {
+	for _, provider := range networkProviders(ddNetworkProfile(options.Tuner, options.Profile).Delivery) {
 		session, err := buildWith(provider, options)
 		if err == nil {
 			session.card = options.Card
@@ -91,6 +92,7 @@ var ErrTunerHeld = errors.New("this tuner is already in use; if nothing else has
 func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	tunerMoniker, captureMonikers := options.Tuner, options.Captures
 	profile := options.Profile
+	networkProfile := ddNetworkProfile(tunerMoniker, profile)
 	graph, err := createGraph()
 	if err != nil {
 		return nil, fmt.Errorf("create DirectShow graph: %w", err)
@@ -120,7 +122,7 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	// before anything is connected: it validates a tune request against the
 	// tuning space it already has, so the real one cold answers E_INVALIDARG.
 	// The real channel goes on once the graph runs (below).
-	space, err := primeTuningSpace(tunerControl, profile, networkTypeFor(profile.Delivery))
+	space, err := primeTuningSpace(tunerControl, networkProfile, networkTypeFor(networkProfile.Delivery))
 	if err != nil {
 		return nil, fmt.Errorf("prime BDA tuning space: %w", err)
 	}
@@ -130,8 +132,8 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bind BDA tuner %q: %w", tunerMoniker.Name, err)
 	}
-	// The tuner filter outlives this function on success: its input pin is the
-	// only route to the card's vendor properties.
+	// The tuner filter outlives this function on success: its connected pins
+	// carry the card's vendor properties.
 	defer func() {
 		if !success {
 			tunerFilter.Release()
@@ -227,7 +229,7 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	// DiSEqC goes first because until the switch is told which port the lead still
 	// carries the last channel's, and also after Run because a control node is
 	// unreachable before then.
-	if profile.DiseqcWanted && !options.Untuned {
+	if profile.DiseqcWanted && !options.Untuned && !dd.Is(tunerMoniker.Vendor()) {
 		if err := sendDiseqc(tunerFilter, profile); err != nil {
 			control.Stop()
 			control.Release()
@@ -235,10 +237,16 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 		}
 	}
 	if !options.Untuned {
-		if err := applyTuneProfile(tunerControl, space, profile); err != nil {
+		var tuneErr error
+		if dd.Is(tunerMoniker.Vendor()) {
+			tuneErr = applyDDTuneProfile(tunerFilter, profile)
+		} else {
+			tuneErr = applyTuneProfile(tunerControl, space, profile)
+		}
+		if tuneErr != nil {
 			control.Stop()
 			control.Release()
-			return nil, fmt.Errorf("tune: %w", err)
+			return nil, fmt.Errorf("tune: %w", tuneErr)
 		}
 	}
 
@@ -253,6 +261,7 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 
 	success = true
 	return &Session{
+		system:        profile.System,
 		graph:         graph,
 		control:       control,
 		events:        events,

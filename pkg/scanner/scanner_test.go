@@ -279,6 +279,9 @@ func TestASampleTellsTheDeviceHowMuchOfTheStreamItWants(t *testing.T) {
 	if device.bounds.For != options.AnalysisTime {
 		t.Errorf("asked for %v of it, want the %v it gathers for", device.bounds.For, options.AnalysisTime)
 	}
+	if device.bounds.Wait != options.DataTimeout {
+		t.Errorf("startup wait = %v, want %v", device.bounds.Wait, options.DataTimeout)
+	}
 }
 
 // endingStream is a stream that ends, the way a bounded one does: a fixed
@@ -742,5 +745,58 @@ func TestTheSamplingLineShowsTheRate(t *testing.T) {
 	}
 	if got := sampledRate(0, time.Second); got != "" {
 		t.Errorf("sampledRate() = %q, want nothing yet", got)
+	}
+}
+
+// stalledStream delivers its prefix and then waits for the read's deadline.
+type stalledStream struct{ prefix []byte }
+
+func (stream *stalledStream) Read(ctx context.Context, buffer []byte) (int, error) {
+	if len(stream.prefix) > 0 {
+		n := copy(buffer, stream.prefix)
+		stream.prefix = stream.prefix[n:]
+		return n, nil
+	}
+	<-ctx.Done()
+	return 0, ctx.Err()
+}
+
+func (*stalledStream) Close() error { return nil }
+
+func TestSampleDeadlinesInterruptStalledReads(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		bytes     int
+		wantError bool
+	}{
+		{"no data", 0, true},
+		{"insufficient data", 1, true},
+		{"analysis", 2, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			options := Options{
+				DataTimeout:  30 * time.Millisecond,
+				AnalysisTime: 40 * time.Millisecond,
+				MinimumBytes: 2, MaximumBytes: 100,
+				PollInterval: time.Millisecond,
+			}
+			stream := &stalledStream{prefix: make([]byte, test.bytes)}
+			started := time.Now()
+			sample, _, err := receiveSampleFrom(t.Context(), options, func([]byte) bool { return false }, stream, nil)
+			if (err != nil) != test.wantError || len(sample) != test.bytes {
+				t.Fatalf("sample bytes=%d err=%v", len(sample), err)
+			}
+			if elapsed := time.Since(started); elapsed > time.Second {
+				t.Fatalf("blocked for %v", elapsed)
+			}
+		})
+	}
+}
+
+func TestDrainDeadlineInterruptsAStalledRead(t *testing.T) {
+	started := time.Now()
+	drain(t.Context(), &stalledStream{}, make([]byte, 1), time.Millisecond)
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("drain blocked for %v", elapsed)
 	}
 }

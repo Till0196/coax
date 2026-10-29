@@ -5,20 +5,18 @@
 
 package dd
 
-import "github.com/Till0196/coax/pkg/win32"
+import (
+	"encoding/binary"
+	"fmt"
+
+	"github.com/Till0196/coax/pkg/win32"
+)
 
 // Digital Devices' private interface on a BDA tuner.
 //
-// These cards do not switch standard: they offer one BDA filter per standard (a
-// four-tuner MAX M4 with everything enabled shows thirty-six), and opening one
-// picks the standard. Which filters exist is decided at driver start from a
-// per-tuner bitmask in its registry key, which the first set below reads and
-// writes.
-//
-// The driver also carries a per-tune standard override on the filter's
-// demodulator node, but it is unusable: measured on a MAX M4, every node-scoped
-// set answers ERROR_SET_NOT_FOUND through the filter while a filter-scoped set
-// answers normally.
+// The driver publishes filters for enabled standards, but a connected transport
+// pin can also select a supported standard for its current graph. This does not
+// change the persistent filter mask.
 
 // Set is the Digital Devices property set the tuner filter itself answers,
 // as opposed to the ones on its nodes.
@@ -76,3 +74,70 @@ const (
 	// dBuVToDBm is the difference between the two scales in 75 ohms.
 	dBuVToDBm = 108.75
 )
+
+// demodulatorSet belongs to node 1 on the connected TS output pin. Requests to
+// the filter itself or its RF input do not reach this node.
+var demodulatorSet = win32.GUID{
+	Data1: 0x0aa8a605, Data2: 0xa240, Data3: 0x11de,
+	Data4: [8]byte{0xb1, 0x30, 0, 0, 0, 0, 0x4d, 0x56},
+}
+
+type nodeWriter interface {
+	SetNode(win32.GUID, uint32, uint32, []byte) error
+}
+
+// SelectStandard changes this graph's acquisition standard before tuning.
+func SelectStandard(control nodeWriter, mode DemodMode) error {
+	var data [4]byte
+	binary.LittleEndian.PutUint32(data[:], uint32(mode))
+	return control.SetNode(demodulatorSet, 0, 1, data[:])
+}
+
+// SelectStream selects a TMCC slot (0..11) or absolute TSID on ISDB-S, or an input stream on
+// DVB-S2. An unspecified stream selects the first ISDB-S stream and resets
+// DVB-S2 filtering. Cable capture keeps the complete multiplex, including TSMF.
+func SelectStream(control nodeWriter, mode DemodMode, streamID int32) error {
+	value := uint32(0xffffffff)
+	if streamID < -1 {
+		return fmt.Errorf("invalid DD stream selector %d", streamID)
+	}
+	switch mode {
+	case ModeISDBS:
+		if streamID > 0xffff {
+			return fmt.Errorf("ISDB-S TSID exceeds 16 bits")
+		}
+		value = 0
+		if streamID >= 0 {
+			value = uint32(streamID)
+			if streamID >= 12 {
+				value |= 0x10000
+			}
+		}
+	case ModeDVBS, ModeDVBS2, ModeDVBS2X:
+		if streamID > 255 {
+			return fmt.Errorf("DVB-S2 input stream ID exceeds 8 bits")
+		}
+		if streamID >= 0 {
+			value = uint32(streamID)
+		}
+	case ModeDVBT2:
+		if streamID >= 0 {
+			value = uint32(streamID) & 255
+		}
+		var data [4]byte
+		binary.LittleEndian.PutUint32(data[:], value)
+		return control.SetNode(win32.GUID{Data1: 0xef30f379, Data2: 0x985b, Data3: 0x4d10, Data4: [8]byte{0xb6, 0x40, 0xa7, 0x9d, 0x5e, 4, 0xe1, 0xe0}}, 12, 1, data[:])
+	case ModeDVBC2:
+		if streamID > 0xffff {
+			return fmt.Errorf("DVB-C2 data slice ID exceeds 16 bits")
+		}
+		if streamID >= 0 {
+			value = uint32(streamID)
+		}
+	default:
+		return nil
+	}
+	var data [4]byte
+	binary.LittleEndian.PutUint32(data[:], value)
+	return control.SetNode(demodulatorSet, 1, 1, data[:])
+}

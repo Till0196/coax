@@ -70,6 +70,7 @@ func receiveSampleFor(ctx context.Context, options Options, settled func([]byte)
 	stream, err := options.Device.OpenStream(tuner.Bounds{
 		Bytes: options.MaximumBytes,
 		For:   options.AnalysisTime,
+		Wait:  options.DataTimeout,
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("open receiver stream: %w", err)
@@ -97,7 +98,13 @@ func receiveSampleFrom(ctx context.Context, options Options, settled func([]byte
 	// reliably loses them.
 	buffer := make([]byte, 256*1024)
 	for {
-		read, readErr := stream.Read(ctx, buffer)
+		deadline := dataDeadline
+		if len(sample) >= options.MinimumBytes && !analysisDeadline.IsZero() {
+			deadline = analysisDeadline
+		}
+		readContext, cancelRead := context.WithDeadline(ctx, deadline)
+		read, readErr := stream.Read(readContext, buffer)
+		cancelRead()
 		if read > 0 {
 			if analysisDeadline.IsZero() {
 				firstByte = time.Now()
@@ -116,6 +123,9 @@ func receiveSampleFrom(ctx context.Context, options Options, settled func([]byte
 		if errors.Is(readErr, io.EOF) {
 			// The bound was reached or the board went away; either way what is
 			// here is the sample.
+			break
+		}
+		if errors.Is(readErr, context.DeadlineExceeded) && ctx.Err() == nil {
 			break
 		}
 		if readErr != nil && !errors.Is(readErr, tuner.ErrWouldBlock) {
@@ -287,6 +297,8 @@ const (
 // bytes, so that the response finishes and the connection it came on stays
 // good. What arrives is thrown away: the sample already has what it needs.
 func drain(ctx context.Context, stream tuner.Stream, buffer []byte, poll time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, drainTimeout)
+	defer cancel()
 	deadline := time.Now().Add(drainTimeout)
 	for attempt := 0; attempt < drainReads && time.Now().Before(deadline); attempt++ {
 		read, err := stream.Read(ctx, buffer)

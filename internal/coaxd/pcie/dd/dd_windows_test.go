@@ -40,8 +40,7 @@ func TestSearchCommands(t *testing.T) {
 	}
 }
 
-// TestFamilyOf checks the aerial family read out of a filter's name, and that
-// every face this backend recognises can be built a graph against.
+// TestFamilyOf checks the network family read out of a filter's name.
 func TestFamilyOf(t *testing.T) {
 	for name, want := range map[string]family{
 		"Digital Devices DVB-T Tuner 1":   familyTerrestrial,
@@ -60,12 +59,7 @@ func TestFamilyOf(t *testing.T) {
 			t.Errorf("familyOf(%q) = %d, want %d", name, got, want)
 		}
 	}
-	// A face with no channel to build a graph against cannot be opened.
-	for label := range tunerFaces {
-		if _, ok := carrierFor("Digital Devices " + label + " Tuner 1"); !ok {
-			t.Errorf("%s has no channel to build a graph against", label)
-		}
-	}
+
 }
 
 // TestDemodOf pins the off-by-one between the name and the command interface.
@@ -92,12 +86,12 @@ func TestFaceDeliveries(t *testing.T) {
 	for name, want := range map[string][]string{
 		"Digital Devices ISDB-T Tuner 1": {"ISDB-T"},
 		"Digital Devices ISDB-S Tuner 2": {"ISDB-S"},
-		"Digital Devices ISDB-C Tuner 3": {"ISDB-C", "DVB-C/ANNEX_C"},
+		"Digital Devices ISDB-C Tuner 3": {"ISDB-C", "DVB-C", "DVB-C/ANNEX_C"},
 		"Digital Devices J83-B Tuner 4":  {"DVB-C/ANNEX_B"},
-		"Digital Devices DVB-T Tuner 1":  {"DVB-T"},
-		"Digital Devices DVB-T2 Tuner 1": {"DVB-T", "DVB-T2"},
+		"Digital Devices DVB-T Tuner 1":  {"ISDB-T", "DVB-T"},
+		"Digital Devices DVB-T2 Tuner 1": {"ISDB-T", "DVB-T", "DVB-T2"},
 		"Digital Devices DVB-S2 Tuner 1": {"DVB-S", "DVB-S2"},
-		"Digital Devices DVB-C Tuner 1":  {"DVB-C"},
+		"Digital Devices DVB-C Tuner 1":  {"ISDB-C", "DVB-C", "DVB-C/ANNEX_C"},
 		"Digital Devices DVB-C2 Tuner 1": {"DVB-C2"},
 		"Some Other Tuner 1":             nil,
 	} {
@@ -120,5 +114,25 @@ func TestFaceDeliveries(t *testing.T) {
 	}
 	if faceOffers("DVB-C", "DVB-C/ANNEX_B") {
 		t.Error("the DVB-C filter should not offer Annex B; that is the J83-B filter's")
+	}
+}
+
+func TestM4StandardsDoNotDependOnPublishedFilters(t *testing.T) {
+	card, ok := modelFor(0x0050dd01)
+	if !ok {
+		t.Fatal("MAX M4 is missing")
+	}
+	device := &Device{model: card, label: "DVB-T2", faces: map[string]string{
+		"DVB-T2": "terrestrial", "DVB-C": "cable", "DVB-S2": "satellite",
+	}}
+	for _, system := range []string{"ISDBT", "ISDBC", "ISDBS", "DVBC/ANNEX_A", "DVBC/ANNEX_C", "DVBC/ANNEX_B", "DVBC2"} {
+		if !device.Supports(system) {
+			t.Errorf("MAX M4 lost %s because its filter is not published", system)
+		}
+	}
+	for _, system := range []string{"ATSC", "ISDBS3", "unknown"} {
+		if device.Supports(system) {
+			t.Errorf("MAX M4 advertises unsupported %s", system)
+		}
 	}
 }

@@ -186,7 +186,7 @@ type Device struct {
 	// relativeStreams: see RelativeStreams.
 	relativeStreams int
 	status          tuner.Status
-	stream          io.ReadCloser
+	stream          *stream
 	// tuned is the channel this tuner is on, so asking for the stream does not
 	// have to describe it again.
 	tuned map[string]string
@@ -339,13 +339,25 @@ func (d *Device) OpenStream(bounds tuner.Bounds) (tuner.Stream, error) {
 	options := d.options
 	options.Tuner = d.id
 	// Asked for as tuned; tuning again would drop the lock and start over.
-	body, _, err := d.client.Stream(context.Background(), d.tuned, options,
+	ctx, cancel := context.WithCancelCause(context.Background())
+	var waiting *time.Timer
+	if bounds.Wait > 0 {
+		waiting = time.AfterFunc(bounds.Wait, func() { cancel(context.DeadlineExceeded) })
+	}
+	body, _, err := d.client.Stream(ctx, d.tuned, options,
 		Bounds{Bytes: bounds.Bytes, For: bounds.For})
 	if err != nil {
+		if waiting != nil {
+			waiting.Stop()
+		}
+		if cause := context.Cause(ctx); cause != nil {
+			err = cause
+		}
+		cancel(context.Canceled)
 		return nil, translate(err)
 	}
-	d.stream = body
-	return &stream{body: body}, nil
+	d.stream = &stream{body: body, ctx: ctx, cancel: cancel, waiting: waiting}
+	return d.stream, nil
 }
 
 // Close gives the tuner back by closing the connection holding it.
@@ -363,17 +375,42 @@ func (d *Device) closeStream() {
 	}
 }
 
-type stream struct{ body io.ReadCloser }
+type stream struct {
+	body    io.ReadCloser
+	ctx     context.Context
+	cancel  context.CancelCauseFunc
+	waiting *time.Timer
+}
 
 func (s *stream) Read(ctx context.Context, buffer []byte) (int, error) {
+	if err := ctx.Err(); err != nil {
+		s.cancel(err)
+		return 0, err
+	}
+	stop := context.AfterFunc(ctx, func() { s.cancel(ctx.Err()) })
+	defer stop()
 	read, err := s.body.Read(buffer)
+	if read > 0 && s.waiting != nil {
+		s.waiting.Stop()
+	}
+	if err != nil {
+		if cause := context.Cause(s.ctx); cause != nil {
+			return read, cause
+		}
+	}
 	if err == io.EOF {
 		return read, io.EOF
 	}
 	return read, err
 }
 
-func (s *stream) Close() error { return s.body.Close() }
+func (s *stream) Close() error {
+	if s.waiting != nil {
+		s.waiting.Stop()
+	}
+	s.cancel(context.Canceled)
+	return s.body.Close()
+}
 
 // statusOf reads what the daemon said about a tuner as a status. The daemon
 // answers in the same shape for a tuning it has just done and for a tuner

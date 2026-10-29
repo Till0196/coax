@@ -13,11 +13,8 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/bda/vendors/dd"
 )
 
-// ddSwitcher is a Digital Devices tuner, which has no mode to switch: these
-// cards offer one BDA filter per standard, so the choice was made when the
-// filter was opened. Which standards have a filter at all is a separate,
-// persistent setting (bda.ReadDDStandards, bda.WriteDDFilterMask) that a tune
-// may not change.
+// ddSwitcher describes the standard selected for a DD graph. Publishing filters
+// is a separate persistent setting which a tune never changes.
 type ddSwitcher struct {
 	tuner filters.Moniker
 }
@@ -29,9 +26,14 @@ func (mode *ddSwitcher) BeforeGraph(tuning.TuneProfile) (vendors.DemodMode, erro
 	return vendors.ModeUnknown, nil
 }
 
-// Current is the standard this filter is for, which the driver puts in its
-// name. It needs no graph and does not change.
-func (mode *ddSwitcher) Current(*graph.Session) (vendors.DemodMode, error) {
+// Current follows the running graph, which may override the filter's advertised
+// standard. Without a graph only the filter's name is available.
+func (mode *ddSwitcher) Current(session *graph.Session) (vendors.DemodMode, error) {
+	if session != nil {
+		if standard, known := dd.ModeFor(session.System()); known {
+			return standard, nil
+		}
+	}
 	standard, named := dd.StandardOf(mode.tuner.Vendor())
 	if !named {
 		return vendors.ModeUnknown, nil
