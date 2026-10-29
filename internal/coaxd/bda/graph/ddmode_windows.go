@@ -116,36 +116,8 @@ func applyDDTuneProfile(filter *directshow.IBaseFilter, profile tuning.TuneProfi
 			return err
 		}
 		if profile.Delivery == tuning.DeliverySatellite {
-			lnbNode := findNode(filter, directshow.IID_IBDA_LNBInfo)
-			if lnbNode == nil {
-				return fmt.Errorf("DD LNB node is absent")
-			}
-			lnb := (*directshow.IBDA_LNBInfo)(unsafe.Pointer(lnbNode))
-			defer lnb.Release()
-			if err := lnb.Put_LocalOscillatorFrequencyLowBand(uint32(profile.LNB.LowOscillatorKHz)); err != nil {
+			if err := applyDDSatelliteProfile(filter, frequency, profile); err != nil {
 				return err
-			}
-			if err := lnb.Put_LocalOscillatorFrequencyHighBand(uint32(profile.LNB.HighOscillatorKHz)); err != nil {
-				return err
-			}
-			if err := lnb.Put_HighLowSwitchFrequency(uint32(profile.LNB.SwitchKHz)); err != nil {
-				return err
-			}
-			pol := directshow.Polarisation(0)
-			var err error
-			if profile.Polarization != "" && profile.Polarization != "AUTO" && profile.Polarization != "OFF" {
-				pol, err = polarizationFor(profile.Polarization)
-			}
-			if err != nil {
-				return err
-			}
-			if err := frequency.Put_Polarity(pol); err != nil {
-				return err
-			}
-			if profile.DiseqcWanted {
-				if err := sendDiseqc(filter, profile); err != nil {
-					return err
-				}
 			}
 		}
 		if err := frequency.Put_Frequency(uint32(profile.FrequencyKHz)); err != nil {
@@ -164,6 +136,41 @@ func applyDDTuneProfile(filter *directshow.IBaseFilter, profile tuning.TuneProfi
 	defer statistics.Release()
 	var locked byte
 	return statistics.Get_SignalLocked(&locked)
+}
+
+// applyDDSatelliteProfile sets the LNB and aerial path inside the current
+// change transaction, before the frequency and stream are selected.
+func applyDDSatelliteProfile(filter *directshow.IBaseFilter, frequency *directshow.IBDA_FrequencyFilter, profile tuning.TuneProfile) error {
+	lnbNode := findNode(filter, directshow.IID_IBDA_LNBInfo)
+	if lnbNode == nil {
+		return fmt.Errorf("DD LNB node is absent")
+	}
+	lnb := (*directshow.IBDA_LNBInfo)(unsafe.Pointer(lnbNode))
+	defer lnb.Release()
+	if err := lnb.Put_LocalOscillatorFrequencyLowBand(uint32(profile.LNB.LowOscillatorKHz)); err != nil {
+		return err
+	}
+	if err := lnb.Put_LocalOscillatorFrequencyHighBand(uint32(profile.LNB.HighOscillatorKHz)); err != nil {
+		return err
+	}
+	if err := lnb.Put_HighLowSwitchFrequency(uint32(profile.LNB.SwitchKHz)); err != nil {
+		return err
+	}
+	pol := directshow.Polarisation(0)
+	var err error
+	if profile.Polarization != "" && profile.Polarization != "AUTO" && profile.Polarization != "OFF" {
+		pol, err = polarizationFor(profile.Polarization)
+	}
+	if err != nil {
+		return err
+	}
+	if err := frequency.Put_Polarity(pol); err != nil {
+		return err
+	}
+	if profile.DiseqcWanted {
+		return sendDiseqc(filter, profile)
+	}
+	return nil
 }
 
 type ddChanges interface {
