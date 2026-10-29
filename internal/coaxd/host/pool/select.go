@@ -4,6 +4,7 @@
 package pool
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -146,6 +147,14 @@ type Want struct {
 // taken from whichever holder asked at the lowest priority, provided that is
 // below this request's.
 func (s *Supervisor) Lease(want Want) (*Lease, error) {
+	return s.LeaseContext(context.Background(), want)
+}
+
+// LeaseContext takes a tuner, allowing the startup repair wait to be cancelled.
+func (s *Supervisor) LeaseContext(ctx context.Context, want Want) (*Lease, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if existing := s.reuse(want); existing != nil {
 		// The work on this tuner has said again what it is worth, which is the
 		// word that now defends it.
@@ -175,7 +184,7 @@ func (s *Supervisor) Lease(want Want) (*Lease, error) {
 			}
 			// One tuner was asked for and there is no second choice, so the
 			// only question is whether this request outranks whoever has it.
-			return held.lease(index, want.Owner, want.Priority, true)
+			return held.lease(ctx, index, want.Owner, want.Priority, true)
 		}
 		return nil, ErrUnknownTuner
 	}
@@ -208,7 +217,7 @@ func (s *Supervisor) Lease(want Want) (*Lease, error) {
 				continue
 			}
 			matched = true
-			lease, err := held.lease(tuner.Index, want.Owner, want.Priority, false)
+			lease, err := held.lease(ctx, tuner.Index, want.Owner, want.Priority, false)
 			if err == nil {
 				return lease, nil
 			}
@@ -225,7 +234,7 @@ func (s *Supervisor) Lease(want Want) (*Lease, error) {
 	}
 	// Every tuner that would serve is in use. If this request outranks one of
 	// the holders, it may have that tuner.
-	if lease, err := s.preempt(candidates, want); lease != nil || err != nil {
+	if lease, err := s.preempt(ctx, candidates, want); lease != nil || err != nil {
 		return lease, err
 	}
 	return nil, ErrBusy
@@ -242,7 +251,7 @@ func (s *Supervisor) Lease(want Want) (*Lease, error) {
 // candidate: the picture of who holds what is already a moment old, and going
 // round again on a busy machine would stop one recording after another. Being
 // told busy is the honest answer.
-func (s *Supervisor) preempt(candidates []entry, want Want) (*Lease, error) {
+func (s *Supervisor) preempt(ctx context.Context, candidates []entry, want Want) (*Lease, error) {
 	var chosen *board
 	chosenIndex := 0
 	chosenPriority := 0
@@ -267,7 +276,7 @@ func (s *Supervisor) preempt(candidates []entry, want Want) (*Lease, error) {
 	if chosen == nil {
 		return nil, nil
 	}
-	lease, err := chosen.lease(chosenIndex, want.Owner, want.Priority, true)
+	lease, err := chosen.lease(ctx, chosenIndex, want.Owner, want.Priority, true)
 	if err == nil {
 		return lease, nil
 	}
@@ -381,6 +390,11 @@ func (s *Supervisor) Card(name string, owner Owner) (*CardHold, error) {
 // Watch keeps a board open while a caller reads a tuner's state, and returns
 // the stop.
 func (s *Supervisor) Watch(name string) (func(), error) {
+	return s.WatchContext(context.Background(), name)
+}
+
+// WatchContext keeps a board open, allowing its startup wait to be cancelled.
+func (s *Supervisor) WatchContext(ctx context.Context, name string) (func(), error) {
 	boardName := name
 	if stem, _, ok := tunerid.Split(name); ok {
 		boardName = stem
@@ -398,7 +412,7 @@ func (s *Supervisor) Watch(name string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	return held.watch()
+	return held.watch(ctx)
 }
 
 func hasTuner(tuners []device.TunerInfo, index int) bool {

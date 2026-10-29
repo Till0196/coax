@@ -6,6 +6,7 @@
 package native
 
 import (
+	"context"
 	"errors"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
@@ -21,7 +22,7 @@ func Owns(one pool.Detected) bool { return one.Backend == Backend }
 
 // Recover has nothing to put back: no backend here takes hardware out from
 // under another driver.
-func Recover() int { return 0 }
+func Recover(context.Context) (int, error) { return 0, nil }
 
 // Recovering names the backends Recover touches, which is none of them.
 func Recovering() []string { return nil }

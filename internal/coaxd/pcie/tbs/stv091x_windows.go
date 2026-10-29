@@ -113,3 +113,7 @@ func (satellite *stv091xDemod) SignalStrength(frequencyKHz uint32) (float64, err
 // the bridge's own pins, reached through the vendor's LNB property, so there
 // is deliberately no SetVoltage here.
 func (satellite *stv091xDemod) SetTone(on bool) error { return satellite.demod.SetTone(on) }
+
+func (satellite *stv091xDemod) SendDiSEqC(message []byte) error {
+	return satellite.demod.SendDiSEqC(message)
+}

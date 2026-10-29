@@ -68,7 +68,7 @@ func run(arguments []string, stdout, stderr *os.File) error {
 		case native.HostCommand:
 			// Its diagnostics go to the daemon, which writes them where its own go.
 			trace.SetOutput(stderr)
-			return native.ServeHost(os.Stdin, stdout)
+			return native.ServeHost(os.Stdin, stdout, arguments[1:])
 		case "load-asv52xx-firmware", "load-px3-firmware":
 			return runLoadASV52xxFirmware(arguments[0], arguments[1:], stdout, stderr)
 		case "help", "-h", "--help":

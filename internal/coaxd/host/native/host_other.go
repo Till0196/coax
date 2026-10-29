@@ -14,6 +14,12 @@ import (
 const HostCommand = "bda-host"
 
 // ServeHost is the BDA host, which only Windows has.
-func ServeHost(io.Reader, io.WriteCloser) error {
+func ServeHost(io.Reader, io.WriteCloser, []string) error {
 	return errors.New("the BDA host runs on Windows only")
 }
+
+// SetSocket does nothing here: only Windows has a BDA host to name.
+func SetSocket(string) {}
+
+// ReleaseHost has no child process to release here.
+func ReleaseHost() {}

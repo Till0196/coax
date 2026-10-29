@@ -126,6 +126,16 @@ func Open(selector string) (*Device, error) {
 func (device *Device) Name() string { return device.name }
 
 func (device *Device) Tune(properties map[string]string) error {
+	return device.tune(properties, false)
+}
+
+// TuneUntuned selects the channel's mode and builds its network type without
+// handing the driver a channel. The caller drives the chips itself.
+func (device *Device) TuneUntuned(properties map[string]string) error {
+	return device.tune(properties, true)
+}
+
+func (device *Device) tune(properties map[string]string, untuned bool) error {
 	profile, err := BuildTuneProfile(properties)
 	if err != nil {
 		return err
@@ -139,7 +149,7 @@ func (device *Device) Tune(properties map[string]string) error {
 		return err
 	}
 	device.mode = settled
-	return device.startGraph(profile, false)
+	return device.startGraph(profile, untuned)
 }
 
 // StartTransport brings the capture graph up and leaves the card's mode alone,

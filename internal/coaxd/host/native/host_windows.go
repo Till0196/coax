@@ -29,6 +29,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/device"
 	"github.com/Till0196/coax/internal/coaxd/host/pool"
+	"github.com/Till0196/coax/internal/coaxd/host/userlock"
 	"github.com/Till0196/coax/internal/coaxd/receiver"
 	"github.com/Till0196/coax/internal/coaxd/trace"
 )
@@ -65,8 +66,18 @@ func hostCall(method string, arguments, reply any) error {
 }
 
 func hostClient() (*rpc.Client, error) {
+	return recoveryHostClient(context.Background())
+}
+
+func recoveryHostClient(ctx context.Context) (*rpc.Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	host.mutex.Lock()
 	defer host.mutex.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if host.client != nil {
 		return host.client, nil
 	}
@@ -74,7 +85,10 @@ func hostClient() (*rpc.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("find this program to start the BDA host: %w", err)
 	}
-	command := exec.Command(executable, HostCommand)
+	if err := waitForEarlierHost(ctx); err != nil {
+		return nil, err
+	}
+	command := exec.Command(executable, HostCommand, socketKey)
 	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow | createBreakawayFromJob}
 	input, err := command.StdinPipe()
 	if err != nil {
@@ -116,6 +130,19 @@ func hostClient() (*rpc.Client, error) {
 	}()
 	return client, nil
 }
+
+// socketKey names the socket this daemon serves, which the host's lock is
+// named after. See SetSocket.
+var socketKey string
+
+// SetSocket names the socket this daemon serves.
+func SetSocket(path string) {
+	socketKey = userlock.Key(path)
+}
+
+// hostLock is the mutex a host holds for as long as it runs, so the daemon that
+// replaces the one which started it can tell it is still giving tuners back.
+func hostLock(key string) string { return "bda-host-" + key }
 
 // pipes joins a process's output and input into one connection.
 type pipes struct {
@@ -221,3 +248,15 @@ func (s *hostedStream) Read(ctx context.Context, buffer []byte) (int, error) {
 }
 
 func (s *hostedStream) Close() error { return hostCall("CloseStream", s.id, &struct{}{}) }
+
+// ReleaseHost closes the parent's RPC connection. The child finishes calls and
+// stops its graphs before exiting, even when this daemon no longer waits.
+func ReleaseHost() {
+	host.mutex.Lock()
+	client := host.client
+	host.client = nil
+	host.mutex.Unlock()
+	if client != nil {
+		_ = client.Close()
+	}
+}

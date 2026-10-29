@@ -264,3 +264,7 @@ func si2183DeliveryFor(system sony.System) (string, error) {
 	}
 	return "", fmt.Errorf("an Si2183 does not receive %s", system)
 }
+
+func (front *si2183Demod) SendDiSEqC(message []byte) error {
+	return front.demod.SendDiSEqC(message, false)
+}

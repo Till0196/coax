@@ -7,8 +7,10 @@ package tbs
 
 import (
 	"errors"
+	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
+	"github.com/Till0196/coax/internal/coaxd/trace"
 )
 
 // A tuner driven from here is left in whatever standard it was last asked for,
@@ -101,6 +103,8 @@ func Recover() int {
 }
 
 func recoverOne(selector string) bool {
+	began := time.Now()
+	defer func() { trace.Printf("TBS recover selector=%s elapsed=%s", selector, time.Since(began)) }()
 	device, err := Open(selector, "")
 	if err != nil {
 		return false
@@ -116,6 +120,7 @@ func recoverOne(selector string) bool {
 	if err := device.attach(sony.SystemUnspecified); err != nil {
 		return false
 	}
+
 	current, err := device.currentSystem()
 	if err != nil {
 		return false

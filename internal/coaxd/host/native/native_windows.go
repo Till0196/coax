@@ -46,16 +46,32 @@ func Owns(one pool.Detected) bool {
 //
 // The repair opens graphs, so it runs in the host process like every other
 // graph. A machine with no TBS card has nothing to repair and starts no host.
-func Recover() int {
+func Recover(ctx context.Context) (int, error) {
 	bda.RemoveLeftovers()
-	if cards, err := tbs.Devices(); err != nil || len(cards) == 0 {
-		return 0
+	cards, err := tbs.Devices()
+	if err != nil {
+		return 0, err
+	}
+	if len(cards) == 0 {
+		return 0, nil
+	}
+	client, err := recoveryHostClient(ctx)
+	if err != nil {
+		return 0, err
 	}
 	var repaired int
-	if err := hostCall("Recover", struct{}{}, &repaired); err != nil {
-		return 0
+	call := client.Go("Host.Recover", struct{}{}, &repaired, nil)
+	for {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case result := <-call.Done:
+			if result.Error != nil {
+				return 0, fromHost(result.Error)
+			}
+			return repaired, nil
+		}
 	}
-	return repaired
 }
 
 // Recovering names the backends Recover touches. Nothing else waits for it:

@@ -118,12 +118,12 @@ type Options struct {
 	// the board the moment its last user goes; LingerForever keeps boards open
 	// until the pool itself is closed.
 	Linger time.Duration
-	// Settled is closed once the hardware is in a state a board may be opened
+	// Settled reports when the hardware is in a state a board may be opened
 	// from. It is what lets the daemon answer while it is still putting right what
 	// a killed run left behind: the repair opens boards of its own, and a client
 	// walking into the middle of that would be two openers on one board. Nil means
 	// nothing to wait for.
-	Settled <-chan struct{}
+	Settled *Settlement
 	// Settling names the backends that wait for it. A repair is one backend's
 	// business: a card in a USB enclosure has no part in a PCIe tuner being handed
 	// back. Empty means every backend waits.
