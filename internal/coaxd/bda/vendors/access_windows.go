@@ -78,6 +78,27 @@ func (control *Control) request(set *win32.GUID, id, flags uint32, data []byte) 
 	return returned, int32(result)
 }
 
+// Exchange sends one request longer than the KSPROPERTY header: an item that
+// carries fields of its own after it, as some drivers' items do. request holds
+// the whole request, header included; the header is filled in here. A get comes
+// back in data, which may be the same length as the request.
+func (control *Control) Exchange(set *win32.GUID, id uint32, write bool, request, data []byte) (uint32, error) {
+	flags := uint32(typeGet)
+	if write {
+		flags = typeSet
+	}
+	putProperty(request, set, id, flags)
+	var returned uint32
+	result, _, _ := syscall.SyscallN(control.vtbl[3], uintptr(unsafe.Pointer(control)),
+		uintptr(unsafe.Pointer(&request[0])), uintptr(len(request)),
+		uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)),
+		uintptr(unsafe.Pointer(&returned)))
+	if int32(result) < 0 {
+		return 0, fmt.Errorf("property %d: HRESULT 0x%08X", id, uint32(result))
+	}
+	return returned, nil
+}
+
 // Get and Set make a filter's control satisfy Properties.
 func (control *Control) Get(set win32.GUID, id uint32, data []byte) (uint32, error) {
 	returned, result := control.request(&set, id, typeGet, data)

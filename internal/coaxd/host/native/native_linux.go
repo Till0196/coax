@@ -29,9 +29,9 @@ const Backend = "dvb"
 // off the node; see chardev.DriverOfNode.
 const ChardevBackend = chardev.Backend
 
-// Owns reports whether a backend name is served from here.
-func Owns(backend string) bool {
-	switch backend {
+// Owns reports whether a tuner is served from here.
+func Owns(one pool.Detected) bool {
+	switch one.Backend {
 	case Backend, ChardevBackend:
 		return true
 	default:

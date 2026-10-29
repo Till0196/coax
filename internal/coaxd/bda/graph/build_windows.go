@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Till0196/coax/pkg/win32"
+	"github.com/Till0196/coax/pkg/win32/directshow"
 
 	"github.com/Till0196/coax/internal/coaxd/bda/cards"
 	"github.com/Till0196/coax/internal/coaxd/bda/filters"
@@ -51,6 +52,10 @@ type Options struct {
 	// Card is the card the tuner is on, held while the graph runs so a mode
 	// switch elsewhere cannot restart it mid-stream. See the cards package.
 	Card string
+	// Untuned brings the graph up without handing the driver a channel, for a
+	// caller that tunes the chips itself. A driver works through a request
+	// asynchronously and can land on its chips after the caller has.
+	Untuned bool
 }
 
 // Build builds the filter graph, trying each network provider in turn. On
@@ -181,12 +186,18 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	}
 
 	capture := ""
+	var captureFilter *directshow.IBaseFilter
+	defer func() {
+		if !success && captureFilter != nil {
+			captureFilter.Release()
+		}
+	}()
 	if directErr := connectFilters(graph, tunerFilter, tee); directErr != nil {
-		chosen, captureErr := connectCapture(graph, tunerFilter, tee, captureMonikers)
+		chosen, filter, captureErr := connectCapture(graph, tunerFilter, tee, captureMonikers)
 		if captureErr != nil {
 			return nil, fmt.Errorf("connect tuner output: direct=%v; receiver component=%w", directErr, captureErr)
 		}
-		capture = chosen
+		capture, captureFilter = chosen, filter
 	}
 	if err := connectFilters(graph, tee, writer); err != nil {
 		return nil, fmt.Errorf("connect the capture file: %w", err)
@@ -223,17 +234,19 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	// DiSEqC goes first because until the switch is told which port the lead still
 	// carries the last channel's, and also after Run because a control node is
 	// unreachable before then.
-	if profile.DiseqcWanted {
+	if profile.DiseqcWanted && !options.Untuned {
 		if err := sendDiseqc(tunerFilter, profile); err != nil {
 			control.Stop()
 			control.Release()
 			return nil, fmt.Errorf("DiSEqC: %w", err)
 		}
 	}
-	if err := applyTuneProfile(tunerControl, space, profile); err != nil {
-		control.Stop()
-		control.Release()
-		return nil, fmt.Errorf("tune: %w", err)
+	if !options.Untuned {
+		if err := applyTuneProfile(tunerControl, space, profile); err != nil {
+			control.Stop()
+			control.Release()
+			return nil, fmt.Errorf("tune: %w", err)
+		}
 	}
 
 	// A graph can abort after Run returns, so the queue is read here and again on
@@ -247,13 +260,14 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 
 	success = true
 	return &Session{
-		graph:      graph,
-		control:    control,
-		events:     events,
-		statistics: statistics,
-		tuner:      tunerFilter,
-		writer:     stream,
-		spool:      spool,
-		capture:    capture,
+		graph:         graph,
+		control:       control,
+		events:        events,
+		statistics:    statistics,
+		tuner:         tunerFilter,
+		writer:        stream,
+		spool:         spool,
+		capture:       capture,
+		captureFilter: captureFilter,
 	}, nil
 }

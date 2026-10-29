@@ -13,12 +13,22 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/bda"
 	"github.com/Till0196/coax/internal/coaxd/pcie/dd"
 	"github.com/Till0196/coax/internal/coaxd/pcie/tbs"
+	"github.com/Till0196/coax/internal/coaxd/usb/board/t230"
 )
 
 func Open(options Options) (Device, error) {
 	backend := options.Backend
 	if backend == "" || backend == "auto" {
 		backend = "bda"
+	}
+	// A T230 on its vendor's BDA driver shares the WinUSB backend's name and is
+	// told apart by its selector, a BDA device path.
+	if backend == t230.Backend.Name && t230.IsBDAPath(options.Device) {
+		device, err := t230.OpenBDA(options.Device)
+		if err != nil {
+			return nil, err
+		}
+		return &windowsT230Device{device: device}, nil
 	}
 	if device, handled, err := openUSB(backend, options); handled {
 		return device, err
@@ -184,6 +194,42 @@ func (device *windowsDDDevice) Status() (Status, error) {
 }
 
 func (device *windowsDDDevice) OpenStream() (Stream, error) {
+	stream, err := device.device.OpenStream()
+	if err != nil {
+		return nil, err
+	}
+	return &windowsBDAStream{stream: stream}, nil
+}
+
+// windowsT230Device is a MyGica stick on its vendor's BDA driver, tuned over
+// the driver's I2C transfer. Its status comes off the demodulator.
+type windowsT230Device struct {
+	device *t230.BDADevice
+}
+
+func (device *windowsT230Device) Backend() string { return t230.Backend.Name }
+func (device *windowsT230Device) Name() string    { return device.device.Name() }
+func (device *windowsT230Device) Close() error    { return device.device.Close() }
+
+func (device *windowsT230Device) Supports(deliverySystem string) (bool, error) {
+	return device.device.Supports(deliverySystem), nil
+}
+
+func (device *windowsT230Device) Tune(properties map[string]string) error {
+	return device.device.Tune(properties)
+}
+
+func (device *windowsT230Device) Status() (Status, error) {
+	status, err := device.device.Status()
+	return Status{
+		Locked:   status.Locked,
+		Names:    status.Names,
+		CNR:      Measurement(status.CNR),
+		Strength: Measurement(status.Strength),
+	}, err
+}
+
+func (device *windowsT230Device) OpenStream() (Stream, error) {
 	stream, err := device.device.OpenStream()
 	if err != nil {
 		return nil, err

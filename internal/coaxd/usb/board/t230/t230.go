@@ -48,14 +48,17 @@ func Layout(id usbio.ID) []device.TunerInfo {
 // deliveries is what the board's single tuner can reach.
 var deliveries = []string{"DVB-T", "DVB-T2", "DVB-C", "DVB-C/ANNEX_B", "DVB-C/ANNEX_C", "ISDB-C"}
 
-// products maps each supported USB product ID to its board name, the tuner it
-// carries and whether the Si2168 needs the TS_CLK_MANUAL sequence. T230A and
-// the T230C2 pair need it; the plain T230, T230C and T230C Lite don't.
-var products = map[uint16]struct {
+// product is one board of the family: its name, the tuner it carries and
+// whether the Si2168 needs the TS_CLK_MANUAL sequence. T230A and the T230C2
+// pair need it; the plain T230, T230C and T230C Lite don't.
+type product struct {
 	name          string
 	tuner         si2157.Config
 	tsClockManual bool
-}{
+}
+
+// products maps each supported USB product ID to its board.
+var products = map[uint16]product{
 	0xc688: {"MyGica T230", si2157.Config{Variant: si2157.Si2157, IFPort: 1}, false},
 	0xc689: {"MyGica T230C", si2157.Config{Variant: si2157.Si2141, IFPort: 0}, false},
 	0xc699: {"MyGica T230C Lite", si2157.Config{Variant: si2157.Si2141, IFPort: 0}, false},
@@ -98,7 +101,7 @@ func open(options device.Options) (device.Board, error) {
 		return fail("initialize "+product.tuner.Variant.String(), err)
 	}
 
-	front := &frontend{bridge: bridge, demod: demod, tuner: tuner, model: product.name}
+	front := &frontend{bridge: bridge, chips: chips{demod: demod, tuner: tuner, model: product.name}}
 	board, err := boardkit.New(boardkit.Config{
 		Model:    product.name,
 		Location: transport.Name(),
@@ -114,20 +117,28 @@ func open(options device.Options) (device.Board, error) {
 }
 
 // frontend is the board's single tuner: the Si2141 or Si2157 in front of the
-// Si2168.
+// Si2168, with the bridge carrying the stream.
 type frontend struct {
-	bridge   *dvbsky.Bridge
-	demod    *si2168.Demod
-	tuner    *si2157.Tuner
+	chips
+	bridge *dvbsky.Bridge
+}
+
+// chips is the Si2168 and the tuner in front of it, however they are reached:
+// through the DVBSky bridge here, or through the vendor's BDA driver on Windows
+// (bda_windows.go).
+type chips struct {
+	demod *si2168.Demod
+	tuner *si2157.Tuner
+	// model is what to call the board in a message.
 	model    string
 	delivery string
 }
 
 // Tune locks onto the channel described by the given channel-file properties.
-func (front *frontend) Tune(properties map[string]string) error {
+func (chips *chips) Tune(properties map[string]string) error {
 	delivery := properties["DELIVERY_SYSTEM"]
 	if !Supports(delivery) {
-		return fmt.Errorf("%s does not support %q", front.model, delivery)
+		return fmt.Errorf("%s does not support %q", chips.model, delivery)
 	}
 	frequency, err := tuning.Number(properties, "FREQUENCY", true)
 	if err != nil {
@@ -150,8 +161,8 @@ func (front *frontend) Tune(properties map[string]string) error {
 	if err != nil {
 		return err
 	}
-	if err := front.tuner.Tune(uint32(frequency), uint32(bandwidth), delivery); err != nil {
-		return fmt.Errorf("tune %s: %w", front.tuner.Variant(), err)
+	if err := chips.tuner.Tune(uint32(frequency), uint32(bandwidth), delivery); err != nil {
+		return fmt.Errorf("tune %s: %w", chips.tuner.Variant(), err)
 	}
 	parameters := si2168.Params{
 		DeliverySystem: delivery,
@@ -162,20 +173,20 @@ func (front *frontend) Tune(properties map[string]string) error {
 		Modulation: properties["MODULATION"],
 		StreamID:   streamID,
 	}
-	if err := front.demod.Tune(parameters); err != nil {
+	if err := chips.demod.Tune(parameters); err != nil {
 		return fmt.Errorf("tune Si2168: %w", err)
 	}
-	front.delivery = delivery
+	chips.delivery = delivery
 	return nil
 }
 
 // Status reports the demodulator lock state for the last tuned channel, along
 // with the signal measurements the two chips can make.
-func (front *frontend) Status() (device.Status, error) {
-	if front.delivery == "" {
+func (chips *chips) Status() (device.Status, error) {
+	if chips.delivery == "" {
 		return device.Status{}, nil
 	}
-	demodStatus, err := front.demod.Status()
+	demodStatus, err := chips.demod.Status()
 	if err != nil {
 		return device.Status{}, err
 	}
@@ -185,7 +196,7 @@ func (front *frontend) Status() (device.Status, error) {
 	}
 	// A failure to read the level says nothing about the lock already
 	// established, so it is left unmeasured rather than made a status error.
-	if strength, strengthErr := front.tuner.SignalStrength(); strengthErr == nil {
+	if strength, strengthErr := chips.tuner.SignalStrength(); strengthErr == nil {
 		status.Strength = device.Measured(strength)
 	}
 	return status, nil

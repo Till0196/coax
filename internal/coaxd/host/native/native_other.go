@@ -16,8 +16,8 @@ import (
 // had any.
 const Backend = "native"
 
-// Owns reports whether a backend name is served from here.
-func Owns(backend string) bool { return backend == Backend }
+// Owns reports whether a tuner is served from here.
+func Owns(one pool.Detected) bool { return one.Backend == Backend }
 
 // Recover has nothing to put back: no backend here takes hardware out from
 // under another driver.

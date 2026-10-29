@@ -49,12 +49,13 @@ func attachTransportInformation(graph *directshow.IGraphBuilder, tee *directshow
 }
 
 // connectCapture puts a receiver component between the tuner and the rest of the
-// graph, and reports which one it used. Which one matters: a multi-demodulator
-// card publishes one component per demodulator, and a graph that takes the wrong
-// one builds, runs, and carries nothing.
-func connectCapture(graph *directshow.IGraphBuilder, tuner *directshow.IBaseFilter, writer *directshow.IBaseFilter, captures []filters.Moniker) (string, error) {
+// graph, and reports which one it used and the filter, which the caller
+// releases. Which one matters: a multi-demodulator card publishes one component
+// per demodulator, and a graph that takes the wrong one builds, runs, and
+// carries nothing.
+func connectCapture(graph *directshow.IGraphBuilder, tuner *directshow.IBaseFilter, writer *directshow.IBaseFilter, captures []filters.Moniker) (string, *directshow.IBaseFilter, error) {
 	if len(captures) == 0 {
-		return "", fmt.Errorf("no BDA receiver component was found")
+		return "", nil, fmt.Errorf("no BDA receiver component was found")
 	}
 	var failures []string
 	for _, candidate := range captures {
@@ -69,14 +70,13 @@ func connectCapture(graph *directshow.IGraphBuilder, tuner *directshow.IBaseFilt
 			}
 		}
 		if err == nil {
-			capture.Release()
-			return candidate.Name, nil
+			return candidate.Name, capture, nil
 		}
 		_ = graph.RemoveFilter(capture)
 		capture.Release()
 		failures = append(failures, candidate.Name+": "+err.Error())
 	}
-	return "", fmt.Errorf("no receiver component connected (%s)", strings.Join(failures, "; "))
+	return "", nil, fmt.Errorf("no receiver component connected (%s)", strings.Join(failures, "; "))
 }
 
 func connectFilters(graph *directshow.IGraphBuilder, source *directshow.IBaseFilter, destination *directshow.IBaseFilter) error {

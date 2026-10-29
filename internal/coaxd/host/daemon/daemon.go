@@ -446,7 +446,7 @@ func (r registry) Detect() ([]pool.Detected, error) {
 }
 
 func (registry) Open(one pool.Detected, options device.Options) (device.Board, error) {
-	if native.Owns(one.Backend) {
+	if native.Owns(one) {
 		return native.Open(one, options)
 	}
 	return usb.OpenBoard(one.Backend, options)

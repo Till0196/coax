@@ -10,6 +10,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/bda/filters"
 	"github.com/Till0196/coax/internal/coaxd/bda/graph"
+	"github.com/Till0196/coax/internal/coaxd/bda/vendors"
 	"github.com/Till0196/coax/internal/coaxd/bda/vendors/tbs"
 )
 
@@ -74,4 +75,19 @@ func (device *Device) Bus() (*PropertyBus, error) {
 		return nil, err
 	}
 	return &PropertyBus{Bus: &tbs.Bus{Properties: property, Name: device.name}}, nil
+}
+
+// CaptureControl is the receiver component of the graph this device has
+// running, for a driver that puts its vendor properties there rather than on
+// the tuner. Like Bus, it is valid only as long as that graph. The caller
+// releases it.
+func (device *Device) CaptureControl() (*vendors.Control, error) {
+	if device.session == nil {
+		return nil, fmt.Errorf("BDA device is not tuned")
+	}
+	capture := device.session.CaptureFilter()
+	if capture == nil {
+		return nil, fmt.Errorf("the graph has no receiver component")
+	}
+	return vendors.Filter(capture)
 }

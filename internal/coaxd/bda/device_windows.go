@@ -139,7 +139,7 @@ func (device *Device) Tune(properties map[string]string) error {
 		return err
 	}
 	device.mode = settled
-	return device.startGraph(profile)
+	return device.startGraph(profile, false)
 }
 
 // StartTransport brings the capture graph up and leaves the card's mode alone,
@@ -147,10 +147,20 @@ func (device *Device) Tune(properties map[string]string) error {
 // card's DMA and the channel it is built against is a formality.
 func (device *Device) StartTransport(profile TuneProfile) error {
 	device.closeSession()
-	return device.startGraph(profile)
+	return device.startGraph(profile, false)
 }
 
-func (device *Device) startGraph(profile TuneProfile) error {
+// StartUntunedTransport brings the capture graph up without handing the driver
+// any channel, for a caller that tunes the chips itself: a request the driver
+// is given goes on being worked through after the graph is up, and lands on the
+// chips after the caller has. profile only names the network type to build
+// against.
+func (device *Device) StartUntunedTransport(profile TuneProfile) error {
+	device.closeSession()
+	return device.startGraph(profile, true)
+}
+
+func (device *Device) startGraph(profile TuneProfile, untuned bool) error {
 	// Nothing reads what the graph writes until a stream is opened, and that
 	// starts a spool of its own.
 	session, err := graph.Build(graph.Options{
@@ -159,6 +169,7 @@ func (device *Device) startGraph(profile TuneProfile) error {
 		Profile:  profile,
 		Limit:    idleCaptureBytes,
 		Card:     device.card,
+		Untuned:  untuned,
 	})
 	if err != nil {
 		return err

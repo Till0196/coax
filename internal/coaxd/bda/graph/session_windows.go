@@ -57,6 +57,9 @@ type Session struct {
 	// if the tuner filter feeds the graph directly. A multi-demodulator card has
 	// one component each, and taking the wrong one runs and carries nothing.
 	capture string
+	// captureFilter is that component, kept because some drivers put their
+	// vendor properties on it rather than on the tuner.
+	captureFilter *directshow.IBaseFilter
 }
 
 // Spool is what the captured stream is being written to.
@@ -85,6 +88,10 @@ func (session *Session) Demodulator() *directshow.IBDA_DigitalDemodulator {
 func (session *Session) SignalStatistics() *directshow.IBDA_SignalStatistics {
 	return session.statistics
 }
+
+// CaptureFilter is the receiver component the stream is carried through, or nil
+// when the tuner feeds the graph directly. It belongs to the session.
+func (session *Session) CaptureFilter() *directshow.IBaseFilter { return session.captureFilter }
 
 // Capture names the receiver component the stream is carried through, or "" if
 // the tuner filter feeds the graph directly.
@@ -209,6 +216,10 @@ func (session *Session) Close() {
 	if session.tuner != nil {
 		session.tuner.Release()
 		session.tuner = nil
+	}
+	if session.captureFilter != nil {
+		session.captureFilter.Release()
+		session.captureFilter = nil
 	}
 	if session.graph != nil {
 		session.graph.Release()

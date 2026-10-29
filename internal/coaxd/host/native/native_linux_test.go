@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/Till0196/coax/internal/coaxd/host/pool"
 )
 
 // TestDetectListsAdaptersItCannotDescribe: asking a frontend what it is may fail
@@ -125,14 +127,14 @@ func TestDetectListsCharacterDevices(t *testing.T) {
 // asked for the rest.
 func TestOwnsClaimsBothKindsAndNothingElse(t *testing.T) {
 	for _, backend := range []string{Backend, ChardevBackend} {
-		if !Owns(backend) {
+		if !Owns(pool.Detected{Backend: backend}) {
 			t.Errorf("Owns(%q) = false", backend)
 		}
 	}
 	// The drivers' own names are not this backend's, so they fall through to the
 	// USB registry like anything else.
 	for _, backend := range []string{"px4", "pxmlt", "t230", "pt1", "pt2", "pt3", ""} {
-		if Owns(backend) {
+		if Owns(pool.Detected{Backend: backend}) {
 			t.Errorf("Owns(%q) = true", backend)
 		}
 	}

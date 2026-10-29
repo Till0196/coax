@@ -18,21 +18,26 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/pcie/dd"
 	"github.com/Till0196/coax/internal/coaxd/pcie/tbs"
 	"github.com/Till0196/coax/internal/coaxd/receiver"
+	"github.com/Till0196/coax/internal/coaxd/usb/board/t230"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // Backend is the name these devices are listed under.
 const Backend = "bda"
 
-// Owns reports whether a backend name is served from here. Three reach hardware
-// Windows knows as a BDA tuner: the plain BDA path plus the TBS and Digital
-// Devices paths, which reach the same hardware but drive the demodulator
-// themselves.
-func Owns(backend string) bool {
-	switch backend {
+// Owns reports whether a tuner is served from here. Four backends reach
+// hardware Windows knows as a BDA tuner: the plain BDA path plus the TBS,
+// Digital Devices and T230 paths, which reach the same hardware but drive the
+// demodulator themselves. A T230 is also a WinUSB board under the same name;
+// the BDA one has no USB IDs of its own in the listing.
+func Owns(one pool.Detected) bool {
+	switch one.Backend {
 	case Backend, tbs.Backend, dd.Backend:
 		return true
+	case t230.Backend.Name:
+		return one.USB == (usbio.ID{})
 	}
-	return ownsEarthsoft(backend)
+	return ownsEarthsoft(one.Backend)
 }
 
 // Recover puts back any tuner a previous run was killed while holding and
@@ -83,12 +88,21 @@ func Detect() ([]pool.Detected, error) {
 			supplies[card.Selector] = card.LNB
 		}
 	}
+	names := make(map[string]string)
+	// A MyGica stick on its vendor's driver is tuned over that driver's I2C
+	// transfer, which also reaches the standards the driver cannot tune.
+	if sticks, err := t230.BDASticks(); err == nil {
+		for _, stick := range sticks {
+			driven[stick.Path] = stick.Deliveries
+			backends[stick.Path] = t230.Backend.Name
+			names[stick.Path] = stick.Name
+		}
+	}
 	// A Digital Devices card publishes one BDA filter per standard per
 	// demodulator, and that backend folds them back into the real tuners. The
 	// folded-away filters are dropped, or one demodulator would be offered once
 	// per standard it receives.
 	folded := make(map[string]bool)
-	names := make(map[string]string)
 	if cards, err := dd.Devices(); err == nil {
 		for _, card := range cards {
 			driven[card.Selector] = card.Deliveries
