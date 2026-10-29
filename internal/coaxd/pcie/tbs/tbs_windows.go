@@ -1334,11 +1334,7 @@ func (device *Device) refreshBus() error {
 		if buildErr != nil {
 			return buildErr
 		}
-		start := device.transport.StartTransport
-		if device.model.untunedTransport() {
-			start = device.transport.StartUntunedTransport
-		}
-		if err := start(profile); err != nil {
+		if err := device.startGraph(profile); err != nil {
 			return fmt.Errorf("start the card's transport again: %w", err)
 		}
 		if bus, err = device.transport.Bus(); err != nil {
@@ -1348,6 +1344,15 @@ func (device *Device) refreshBus() error {
 	// Replaced in place: the demodulator was handed this bus and holds it still.
 	device.bus.Properties = bus.Properties
 	return nil
+}
+
+// startGraph chooses whether the graph also hands a channel to the vendor
+// driver. Initial attachment and a rebuilt graph must use the same policy.
+func (device *Device) startGraph(profile bda.TuneProfile) error {
+	if device.model.untunedTransport() {
+		return device.transport.StartUntunedTransport(profile)
+	}
+	return device.transport.StartTransport(profile)
 }
 
 // supply is this tuner's low-noise block supply, on the property set the bus
@@ -1428,11 +1433,7 @@ func (device *Device) attach(system sony.System) error {
 		if err != nil {
 			return err
 		}
-		start := device.transport.StartTransport
-		if device.model.untunedTransport() {
-			start = device.transport.StartUntunedTransport
-		}
-		if err := start(profile); err != nil {
+		if err := device.startGraph(profile); err != nil {
 			return fmt.Errorf("start the card's transport: %w", err)
 		}
 	}
