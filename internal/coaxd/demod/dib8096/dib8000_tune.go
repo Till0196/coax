@@ -1156,9 +1156,9 @@ func (state *dib8000) setFrontend() error {
 			break
 		}
 
-		// agcStartup counts in 0.1ms. Linux rounds up to 10ms; waited as given,
-		// the lock and CNR were the same.
-		wait = (wait + 9) / 10
+		// agcStartup counts in 0.1ms. Keep the reference driver's extra
+		// settling time: 70, 50, 70 become 16, 14, 16ms.
+		wait = 10 * (wait + 99) / 100
 		state.msleep(wait)
 		if state.tuneState == agcStop {
 			break
