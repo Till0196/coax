@@ -102,7 +102,7 @@ Go 1.25以降が必要です。
 ```sh
 go build -o coax  ./cmd/coax
 go build -o coaxd ./cmd/coaxd   # 同じディレクトリに置くと coax が自動で起動します
-./coax version                  # coax 0.1.2
+./coax version                  # coax 0.1.3
 ```
 
 ### 使い方
