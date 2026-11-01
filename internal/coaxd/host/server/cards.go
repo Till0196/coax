@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/host/hostapi"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // Cards is the card slots the daemon serves, an interface so the HTTP layer can
@@ -138,7 +139,7 @@ func (s *Server) handleCard(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Query().Get("probe") == "1" {
 			present, err := s.options.Cards.Present(id)
 			if err != nil {
-				fail(writer, http.StatusBadGateway, hostapi.CodeCardError, err.Error())
+				failWith(writer, http.StatusBadGateway, cardProblem(err), nil)
 				return
 			}
 			described.Present = &present
@@ -189,7 +190,7 @@ func (s *Server) handleCardSession(writer http.ResponseWriter, request *http.Req
 
 	atr, responses, err := s.options.Cards.Session(id, apdus)
 	if err != nil && len(responses) == 0 {
-		fail(writer, http.StatusBadGateway, hostapi.CodeCardError, err.Error())
+		failWith(writer, http.StatusBadGateway, cardProblem(err), nil)
 		return
 	}
 
@@ -208,7 +209,7 @@ func (s *Server) handleCardSession(writer http.ResponseWriter, request *http.Req
 		// Part of the conversation happened, and a caller working out how far it got
 		// needs both halves.
 		writeJSON(writer, http.StatusBadGateway, hostapi.Failure{
-			Error: hostapi.Problem{Code: hostapi.CodeCardError, Message: err.Error()},
+			Error: cardProblem(err),
 		})
 		return
 	}
@@ -531,12 +532,23 @@ func (s *Server) failCard(writer http.ResponseWriter, id string, err error) {
 	if readers, listErr := s.options.Cards.Readers(); listErr == nil {
 		for _, reader := range readers {
 			if reader.Reader == id {
-				fail(writer, http.StatusBadGateway, hostapi.CodeCardError, err.Error())
+				failWith(writer, http.StatusBadGateway, cardProblem(err), nil)
 				return
 			}
 		}
 		fail(writer, http.StatusNotFound, hostapi.CodeUnknownTuner, "no card reader is called "+id)
 		return
 	}
-	fail(writer, http.StatusBadGateway, hostapi.CodeCardError, err.Error())
+	failWith(writer, http.StatusBadGateway, cardProblem(err), nil)
+}
+
+// cardProblem preserves a PC/SC status independently of the human-readable
+// message so card clients can choose the recovery the provider requested.
+func cardProblem(err error) hostapi.Problem {
+	problem := hostapi.Problem{Code: hostapi.CodeCardError, Message: err.Error()}
+	var code winscard.Code
+	if errors.As(err, &code) {
+		problem.Reason = fmt.Sprintf("scard:%08X", uint32(code))
+	}
+	return problem
 }
