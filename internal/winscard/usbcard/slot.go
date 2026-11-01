@@ -5,8 +5,10 @@ package usbcard
 
 import (
 	"sync"
+	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
+	"github.com/Till0196/coax/internal/coaxd/trace"
 	"github.com/Till0196/coax/pkg/winscard"
 )
 
@@ -86,6 +88,7 @@ func (s *slot) openLocked() error {
 	}
 	borrow, err := s.provider.config.Boards.Open(s.cardDevice.backend, s.cardDevice.selector)
 	if err != nil {
+		trace.Printf("card %s: open board %s %s failed: %v", s.cardDevice.name, s.cardDevice.backend, s.cardDevice.selector, err)
 		return winscard.ErrReaderUnavailable
 	}
 	reader, ok := borrow.Board.(device.CardReader)
@@ -291,7 +294,10 @@ func (s *slot) session() ([]byte, error) {
 	}
 
 	s.hardware.Lock()
+	started := time.Now()
+	trace.Printf("card %s: reset started", s.cardDevice.name)
 	atr, err := reader.ResetCard()
+	trace.Printf("card %s: reset finished after %s, ATR bytes=%d, error=%v", s.cardDevice.name, time.Since(started), len(atr), err)
 	s.hardware.Unlock()
 	if err != nil {
 		return nil, s.fail(err)
@@ -350,6 +356,7 @@ func (s *slot) invalidate() {
 // is a reason to wait for a new one, a failed exchange with the card still
 // seated a reason to reset and try again.
 func (s *slot) fail(cause error) error {
+	trace.Printf("card %s: session failed: %v", s.cardDevice.name, cause)
 	s.invalidate()
 	s.state.Lock()
 	reader := s.reader

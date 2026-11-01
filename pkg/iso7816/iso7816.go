@@ -184,7 +184,7 @@ func (session *Session) Reset() ([]byte, error) {
 
 	present, err := session.line.Present()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("smart card reset: detect presence: %w", err)
 	}
 	if !present {
 		return nil, ErrNoCard
@@ -197,14 +197,14 @@ func (session *Session) Reset() ([]byte, error) {
 	for attempt := 0; attempt < 2; attempt++ {
 		parameters = atrParameters{}
 		if err = session.line.Reset(); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("smart card reset: power cycle: %w", err)
 		}
 		session.atr, parameters, err = session.readATR()
 		if err == nil {
 			break
 		}
 		if attempt != 0 || !errors.Is(err, errMalformed) {
-			return nil, err
+			return nil, fmt.Errorf("smart card reset: read ATR (attempt %d): %w", attempt+1, err)
 		}
 	}
 	if err != nil {
@@ -212,7 +212,7 @@ func (session *Session) Reset() ([]byte, error) {
 	}
 
 	if err := session.line.SetBaudrate(parameters.baudrate); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("smart card reset: set baud rate %d: %w", parameters.baudrate, err)
 	}
 	session.baudrate = parameters.baudrate
 	session.useCRC = parameters.useCRC
@@ -221,7 +221,7 @@ func (session *Session) Reset() ([]byte, error) {
 
 	if err := session.initialize(); err != nil {
 		session.invalidate()
-		return nil, err
+		return nil, fmt.Errorf("smart card reset: initialize T=1 at %d baud: %w", parameters.baudrate, err)
 	}
 	session.open = true
 	return append([]byte(nil), session.atr...), nil
@@ -250,21 +250,27 @@ func (session *Session) initialize() error {
 	ifsd := session.ourIFSD()
 	if session.baudrate != 38400 {
 		if err := session.resynchronise(deadline); err != nil {
-			return err
+			return fmt.Errorf("resynchronize: %w", err)
 		}
-		return session.agreeIFS(ifsd, maxRetries, deadline)
+		if err := session.agreeIFS(ifsd, maxRetries, deadline); err != nil {
+			return fmt.Errorf("agree IFSD %d: %w", ifsd, err)
+		}
+		return nil
 	}
 	err := session.agreeIFS(ifsd, 1, deadline)
 	if err == nil {
 		return nil
 	}
 	if !errors.Is(err, errMalformed) && !isTimeout(err) {
-		return err
+		return fmt.Errorf("agree IFSD %d: %w", ifsd, err)
 	}
-	if err := session.resynchronise(deadline); err != nil {
-		return err
+	if resyncErr := session.resynchronise(deadline); resyncErr != nil {
+		return fmt.Errorf("agree IFSD %d failed (%v); resynchronize: %w", ifsd, err, resyncErr)
 	}
-	return session.agreeIFS(ifsd, 1, deadline)
+	if retryErr := session.agreeIFS(ifsd, 1, deadline); retryErr != nil {
+		return fmt.Errorf("agree IFSD %d after resynchronization (first attempt: %v): %w", ifsd, err, retryErr)
+	}
+	return nil
 }
 
 // resynchronise puts both ends back to block number zero.

@@ -6,6 +6,7 @@ package iso7816
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -590,5 +591,68 @@ func TestExchangeGrantsTheTimeItPromises(t *testing.T) {
 
 	if _, err := session.Transmit([]byte{0x00, 0xa4, 0x04, 0x00}); err != nil {
 		t.Fatalf("Transmit: %v", err)
+	}
+}
+
+// resetFaultLine fails at one boundary so diagnostics can identify the phase
+// without changing the underlying error used by recovery decisions.
+type resetFaultLine struct {
+	fakeLine
+	phase string
+	cause error
+}
+
+func (line *resetFaultLine) Present() (bool, error) {
+	if line.phase == "presence" {
+		return false, line.cause
+	}
+	return line.fakeLine.Present()
+}
+func (line *resetFaultLine) Reset() error {
+	if line.phase == "power" {
+		return line.cause
+	}
+	return line.fakeLine.Reset()
+}
+func (line *resetFaultLine) Ready() (bool, error) {
+	if line.phase == "ATR" {
+		return false, line.cause
+	}
+	return line.fakeLine.Ready()
+}
+func (line *resetFaultLine) SetBaudrate(rate int) error {
+	if line.phase == "baud" {
+		return line.cause
+	}
+	return line.fakeLine.SetBaudrate(rate)
+}
+func (line *resetFaultLine) Write(data []byte) error {
+	if line.phase == "resync" || line.phase == "IFS" && data[1] == blockSupervisory|blockIFS {
+		return line.cause
+	}
+	return line.fakeLine.Write(data)
+}
+
+func TestResetErrorsIdentifyTheFailedPhaseAndPreserveCause(t *testing.T) {
+	for _, test := range []struct{ phase, message string }{
+		{"presence", "detect presence"}, {"power", "power cycle"},
+		{"ATR", "read ATR (attempt 1)"}, {"baud", "set baud rate 9600"},
+		{"resync", "initialize T=1 at 9600 baud: resynchronize"},
+		{"IFS", "initialize T=1 at 9600 baud: agree IFSD"},
+	} {
+		t.Run(test.phase, func(t *testing.T) {
+			cause := errors.New("injected transport failure")
+			line := &resetFaultLine{fakeLine: fakeLine{present: true, answers: [][]byte{
+				plainATR(), block(blockSupervisory | blockResponse | blockResynch),
+			}}, phase: test.phase, cause: cause}
+			session := New(line)
+			_, err := session.Reset()
+			if !errors.Is(err, cause) || !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("Reset = %v, want phase %q with original cause", err, test.message)
+			}
+			if session.open {
+				t.Fatal("failed reset left the session open")
+			}
+		})
 	}
 }
