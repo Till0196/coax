@@ -83,8 +83,8 @@ func (h *Handle) Close() error {
 
 // Present reports whether a card is seated.
 func (h *Handle) Present() (bool, error) {
-	h.slot.claim(h)
-	defer h.slot.drop()
+	// Status reads are serialised by look's hardware lock; a transaction
+	// between commands must not block presence monitoring.
 	present, _, err := h.slot.look()
 	return present, err
 }

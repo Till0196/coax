@@ -53,6 +53,7 @@ const (
 	// Nothing here produces one any more (see callUninterrupted); it is named so
 	// an unforeseen one is recognisable.
 	kIOReturnAborted         = 0xe00002eb
+	kIOReturnNotResponding   = 0xe00002ed
 	kIOUSBTransactionTimeout = 0xe0004051
 )
 
@@ -458,7 +459,7 @@ func ioKitError(operation string, code uint32) error {
 	switch code {
 	case kIOReturnExclusiveAccess:
 		return fmt.Errorf("%s: something else already has this device", operation)
-	case kIOReturnNoDevice, kIOReturnNotAttached:
+	case kIOReturnNoDevice, kIOReturnNotAttached, kIOReturnNotResponding:
 		return fmt.Errorf("%s: %w", operation, backend.ErrGone)
 	case kIOReturnUnsupported:
 		return fmt.Errorf("%s: %w", operation, backend.ErrUnsupported)

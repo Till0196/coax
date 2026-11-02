@@ -62,11 +62,13 @@ type fakeBoard struct {
 	tuners []device.TunerInfo
 	card   bool
 
-	mutex   sync.Mutex
-	opened  counter
-	closed  counter
-	taken   map[int]bool
-	tuneErr error
+	mutex     sync.Mutex
+	opened    counter
+	closed    counter
+	taken     map[int]bool
+	tuneErr   error
+	cardErr   error
+	cardCalls int
 	// streams makes the tuners hand out a stream, and events records what was
 	// closed in what order.
 	streams bool
@@ -178,11 +180,17 @@ func (s *fakeStream) Close() error {
 // around the same handle.
 type cardBoard struct{ *fakeBoard }
 
-func (b cardBoard) CardStatus() (device.CardStatus, error) {
-	return device.CardStatus{Present: true, Reader: "fake"}, nil
+func (b cardBoard) cardFailure() error {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	b.cardCalls++
+	return b.cardErr
 }
-func (b cardBoard) ResetCard() ([]byte, error)          { return []byte{0x3b}, nil }
-func (b cardBoard) TransmitAPDU([]byte) ([]byte, error) { return []byte{0x90, 0x00}, nil }
+func (b cardBoard) CardStatus() (device.CardStatus, error) {
+	return device.CardStatus{Present: true, Reader: "fake"}, b.cardFailure()
+}
+func (b cardBoard) ResetCard() ([]byte, error)          { return []byte{0x3b}, b.cardFailure() }
+func (b cardBoard) TransmitAPDU([]byte) ([]byte, error) { return []byte{0x90, 0x00}, b.cardFailure() }
 
 // px4Board is the shape this pool exists for: four tuners and a card slot on one
 // USB device.

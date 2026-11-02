@@ -288,7 +288,7 @@ func (c *connection) establishContext(request header) error {
 		c.server.mutex.Unlock()
 	}
 	put(raw, 1, identifier)
-	put(raw, 2, uint32(winscard.CodeOf(establishErr)))
+	put(raw, 2, wireCode(winscard.CodeOf(establishErr)))
 	return c.reply(raw)
 }
 
@@ -309,7 +309,7 @@ func (c *connection) releaseContext(request header) error {
 		delete(c.server.contexts, identifier)
 		c.server.mutex.Unlock()
 	}
-	put(raw, 1, uint32(result))
+	put(raw, 1, wireCode(result))
 	c.server.table.Refresh()
 	return c.reply(raw)
 }
@@ -342,7 +342,7 @@ func (c *connection) connect(request header) error {
 	}
 	order.PutUint32(raw[140:144], uint32(identifier))
 	order.PutUint32(raw[144:148], uint32(active))
-	order.PutUint32(raw[148:152], uint32(result))
+	order.PutUint32(raw[148:152], wireCode(result))
 	c.server.table.Refresh()
 	return c.reply(raw)
 }
@@ -365,7 +365,7 @@ func (c *connection) reconnect(request header) error {
 		active = agreed
 	}
 	put(raw, 4, uint32(active))
-	put(raw, 5, uint32(result))
+	put(raw, 5, wireCode(result))
 	c.server.table.Refresh()
 	return c.reply(raw)
 }
@@ -384,7 +384,7 @@ func (c *connection) disconnect(request header) error {
 		delete(c.cards, identifier)
 		c.mutex.Unlock()
 	}
-	put(raw, 2, uint32(result))
+	put(raw, 2, wireCode(result))
 	c.server.table.Refresh()
 	return c.reply(raw)
 }
@@ -398,7 +398,7 @@ func (c *connection) beginTransaction(request header) error {
 	if handle, ok := c.card(int32(field(raw, 0))); ok {
 		result = winscard.CodeOf(c.server.service.BeginTransaction(handle))
 	}
-	put(raw, 1, uint32(result))
+	put(raw, 1, wireCode(result))
 	return c.reply(raw)
 }
 
@@ -411,7 +411,7 @@ func (c *connection) endTransaction(request header) error {
 	if handle, ok := c.card(int32(field(raw, 0))); ok {
 		result = winscard.CodeOf(c.server.service.EndTransaction(handle, winscard.Disposition(field(raw, 1))))
 	}
-	put(raw, 2, uint32(result))
+	put(raw, 2, wireCode(result))
 	return c.reply(raw)
 }
 
@@ -430,7 +430,7 @@ func (c *connection) status(request header) error {
 			c.server.table.Observed(reported)
 		}
 	}
-	put(raw, 1, uint32(result))
+	put(raw, 1, wireCode(result))
 	return c.reply(raw)
 }
 
@@ -467,7 +467,7 @@ func (c *connection) transmit(request header) error {
 	}
 	put(raw, 4, uint32(answerProtocol))
 	put(raw, 6, uint32(len(answer)))
-	put(raw, 7, uint32(result))
+	put(raw, 7, wireCode(result))
 	if err := c.reply(raw); err != nil {
 		return err
 	}
@@ -506,7 +506,7 @@ func (c *connection) control(request header) error {
 		result = winscard.ErrInsufficientBuffer
 	}
 	put(raw, 4, uint32(len(answer)))
-	put(raw, 5, uint32(result))
+	put(raw, 5, wireCode(result))
 	if err := c.reply(raw); err != nil {
 		return err
 	}
@@ -548,7 +548,7 @@ func (c *connection) attribute(request header) error {
 		result = winscard.CodeOf(c.server.service.SetAttrib(handle, attribute, value))
 	}
 	order.PutUint32(raw[8+maxAttribute:12+maxAttribute], length)
-	order.PutUint32(raw[12+maxAttribute:16+maxAttribute], uint32(result))
+	order.PutUint32(raw[12+maxAttribute:16+maxAttribute], wireCode(result))
 	return c.reply(raw)
 }
 
@@ -583,7 +583,7 @@ func (c *connection) cancel(request header) error {
 		// cancel one the application never asked to cancel.
 		result = winscard.Success
 	}
-	put(raw, 1, uint32(result))
+	put(raw, 1, wireCode(result))
 	return c.reply(raw)
 }
 

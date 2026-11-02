@@ -10,6 +10,7 @@ import (
 
 	"github.com/Till0196/coax/pkg/host"
 	"github.com/Till0196/coax/pkg/pcscd"
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // Slots is the reader table's view of a daemon's slots.
@@ -58,11 +59,12 @@ type slot struct {
 	client *host.Client
 	reader string
 
-	mutex   sync.Mutex
-	present bool
-	atr     []byte
-	sharing int
-	events  uint32
+	mutex       sync.Mutex
+	present     bool
+	unavailable bool
+	atr         []byte
+	sharing     int
+	events      uint32
 
 	closeOnce sync.Once
 	done      chan struct{}
@@ -72,6 +74,7 @@ func (s *slot) remember(state host.CardState) {
 	atr, _ := host.ParseHex(state.ATR)
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	s.unavailable = false
 	s.present, s.atr, s.sharing, s.events = state.Present, atr, state.Sharing, uint32(state.Events)
 }
 
@@ -95,9 +98,12 @@ func (s *slot) wait() {
 		default:
 		}
 		if err != nil {
+			s.mutex.Lock()
+			s.unavailable = true
+			s.mutex.Unlock()
 			// Nothing answered. Waiting a moment before asking again keeps a
 			// daemon that has gone from being asked in a tight loop; the table
-			// meanwhile reports the last state that was true.
+			// meanwhile reports the slot as unavailable.
 			select {
 			case <-s.done:
 				return
@@ -112,6 +118,9 @@ func (s *slot) wait() {
 func (s *slot) Present() (bool, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	if s.unavailable {
+		return false, winscard.ErrReaderUnavailable
+	}
 	return s.present, nil
 }
 

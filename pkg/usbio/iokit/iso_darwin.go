@@ -367,7 +367,7 @@ func (ring *iokitIsoRing) Read(buffer []byte, timeoutMS uint32) (int, error) {
 
 	switch uint32(status) {
 	case 0:
-	case 0xe00002c0, 0xe00002d9: // kIOReturnNoDevice, kIOReturnNotAttached
+	case kIOReturnNoDevice, kIOReturnNotAttached, kIOReturnNotResponding:
 		return transferred, backend.ErrGone
 	default:
 		// A transfer that arrived late or partly is still worth what came back;

@@ -309,7 +309,19 @@ func (p *Provider) slotFor(one cardDevice) *slot {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	if existing, ok := p.slots[one.name]; ok {
-		return existing
+		existing.state.Lock()
+		stale := existing.retired || existing.board != nil && existing.staleLocked()
+		if !stale && existing.cardDevice.selector == one.selector {
+			existing.state.Unlock()
+			return existing
+		}
+		existing.retired = true
+		events := existing.events + 1
+		existing.state.Unlock()
+		created := newSlot(p, one)
+		created.events = events
+		p.slots[one.name] = created
+		return created
 	}
 	created := newSlot(p, one)
 	p.slots[one.name] = created

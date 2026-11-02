@@ -4,18 +4,19 @@
 package usbcard
 
 import (
+	"errors"
 	"sync"
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
 	"github.com/Till0196/coax/internal/coaxd/trace"
+	"github.com/Till0196/coax/pkg/usbio"
 	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // slot is one card slot: the board it is in, the connections to it, and the T=1
-// session they share. There is one per reader name for the life of the process,
-// connected or not, because it is what remembers that a card was removed while
-// nobody was looking.
+// session they share. A retired generation stays with its old connections;
+// the provider carries its event count forward to the replacement slot.
 type slot struct {
 	provider   *Provider
 	cardDevice cardDevice
@@ -35,7 +36,8 @@ type slot struct {
 	// borrow is the board this slot holds, and how to tell whether it is still the
 	// board the name refers to. Checked before every use: a name outliving its
 	// hardware is exactly what a card conversation must not continue across.
-	borrow Borrow
+	borrow  Borrow
+	retired bool
 	// opens counts the connections keeping the board open.
 	opens int
 	// shared and exclusive count the connections by share mode, which is what
@@ -75,12 +77,16 @@ func (s *slot) open() error {
 }
 
 func (s *slot) openLocked() error {
+	if s.retired {
+		return winscard.ErrReaderUnavailable
+	}
 	if s.opens > 0 {
 		if s.staleLocked() {
 			// The board this slot was holding has gone and another has come
 			// back under the same name. Nothing about the old conversation
 			// carries over, so it is torn down before the count grows.
 			s.discardLocked()
+			return winscard.ErrReaderUnavailable
 		} else {
 			s.opens++
 			return nil
@@ -110,6 +116,9 @@ func (s *slot) openLocked() error {
 // its name refers to. DriverHost_PX4 makes the same check for the same reason:
 // a device unplugged and put back is a different device.
 func (s *slot) staleLocked() bool {
+	if s.retired {
+		return true
+	}
 	if s.board == nil {
 		return true
 	}
@@ -120,6 +129,7 @@ func (s *slot) staleLocked() bool {
 // leaving the connections counted against it in place: they are still
 // connections, they simply have no session any more.
 func (s *slot) discardLocked() {
+	s.retired = true
 	release := s.borrow.Release
 	s.board = nil
 	s.reader = nil
@@ -256,6 +266,11 @@ func (s *slot) look() (present bool, name string, err error) {
 	status, err := reader.CardStatus()
 	s.hardware.Unlock()
 	if err != nil {
+		if errors.Is(err, usbio.ErrGone) {
+			s.state.Lock()
+			s.discardLocked()
+			s.state.Unlock()
+		}
 		return false, "", winscard.ErrReaderUnavailable
 	}
 	s.state.Lock()
@@ -312,7 +327,7 @@ func (s *slot) session() ([]byte, error) {
 // exchange sends one APDU on an established session.
 func (s *slot) exchange(apdu []byte) ([]byte, error) {
 	s.state.Lock()
-	stale := s.board != nil && s.staleLocked()
+	stale := s.retired || s.board != nil && s.staleLocked()
 	if stale {
 		s.discardLocked()
 	}
@@ -359,6 +374,11 @@ func (s *slot) fail(cause error) error {
 	trace.Printf("card %s: session failed: %v", s.cardDevice.name, cause)
 	s.invalidate()
 	s.state.Lock()
+	if errors.Is(cause, usbio.ErrGone) || s.retired || s.board != nil && s.staleLocked() {
+		s.discardLocked()
+		s.state.Unlock()
+		return winscard.ErrReaderUnavailable
+	}
 	reader := s.reader
 	s.state.Unlock()
 	if reader == nil {

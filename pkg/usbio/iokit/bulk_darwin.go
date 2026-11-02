@@ -126,7 +126,7 @@ func (ring *iokitBulkRing) Read(buffer []byte, timeoutMS uint32) (int, error) {
 		ring.head = (ring.head + 1) % len(ring.entries)
 		switch status {
 		case 0:
-		case 0xe00002c0, 0xe00002d9: // kIOReturnNoDevice, kIOReturnNotAttached
+		case kIOReturnNoDevice, kIOReturnNotAttached, kIOReturnNotResponding:
 			return total, backend.ErrGone
 		default:
 			return total, ioKitError(fmt.Sprintf("bulk endpoint pipe %d", ring.pipe), status)

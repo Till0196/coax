@@ -23,6 +23,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/Till0196/coax/pkg/winscard"
 )
 
 // The protocol version this speaks, PROTOCOL_VERSION_MAJOR and
@@ -213,4 +215,15 @@ func (r readerState) encode() []byte {
 	order.PutUint32(raw[176:180], uint32(len(atr)))
 	order.PutUint32(raw[180:184], r.protocol)
 	return raw
+}
+
+// pcsc-lite uses a different SCARD_E_UNSUPPORTED_FEATURE value from Windows.
+const pcscUnsupportedFeature uint32 = 0x8010001f
+
+// PC/SC over HTTP uses Windows codes; translate at the pcsc-lite boundary.
+func wireCode(code winscard.Code) uint32 {
+	if code == winscard.ErrUnsupportedFeature {
+		return pcscUnsupportedFeature
+	}
+	return uint32(code)
 }

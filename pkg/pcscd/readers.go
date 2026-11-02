@@ -62,11 +62,12 @@ type Table struct {
 }
 
 type entry struct {
-	present  bool
-	measured bool
-	atr      []byte
-	events   uint32
-	sharing  int32
+	unavailable bool
+	present     bool
+	measured    bool
+	atr         []byte
+	events      uint32
+	sharing     int32
 }
 
 func NewTable(slots Slots, interval time.Duration, poll bool) *Table {
@@ -154,9 +155,10 @@ func (t *Table) Observed(status winscard.Status) {
 		return
 	}
 	present := status.State != winscard.CardAbsent
-	if known.measured && known.present != present {
+	if known.unavailable || known.measured && known.present != present {
 		known.events++
 	}
+	known.unavailable = false
 	known.measured = true
 	known.present = present
 	known.atr = append([]byte(nil), status.ATR...)
@@ -177,7 +179,9 @@ func (t *Table) States() []readerState {
 		known := t.cards[name]
 		state := uint32(stateAbsent)
 		var atr []byte
-		if known.present {
+		if known.unavailable {
+			state = stateUnknown
+		} else if known.present {
 			// Powered and specific follow presence here because a card this
 			// daemon can see at all has been through its answer to reset:
 			// there is no state in between on these interfaces.
@@ -277,10 +281,16 @@ func (t *Table) sweep() bool {
 	for _, name := range names {
 		handle, err := t.handleFor(name)
 		if err != nil {
+			moved = t.unavailable(name) || moved
 			continue
 		}
 		present, presenceErr := handle.Present()
 		if presenceErr != nil {
+			moved = t.unavailable(name) || moved
+			t.mutex.Lock()
+			delete(t.held, name)
+			t.mutex.Unlock()
+			_ = handle.Close()
 			continue
 		}
 		atr := handle.ATR()
@@ -289,13 +299,14 @@ func (t *Table) sweep() bool {
 		t.mutex.Lock()
 		known, ok := t.cards[name]
 		if ok {
-			if !known.measured || known.present != present {
+			if !known.measured || known.present != present || known.unavailable {
 				known.events++
 				moved = true
 			}
 			if known.sharing != sharing {
 				moved = true
 			}
+			known.unavailable = false
 			known.measured = true
 			known.present = present
 			known.sharing = sharing
@@ -358,4 +369,19 @@ func (t *Table) Names() []string {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 	return append([]string(nil), t.names...)
+}
+
+func (t *Table) unavailable(name string) bool {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	known, ok := t.cards[name]
+	if !ok || known.unavailable {
+		return false
+	}
+	known.unavailable = true
+	known.present = false
+	known.atr = nil
+	known.sharing = 0
+	known.events++
+	return true
 }

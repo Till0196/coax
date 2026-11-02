@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -19,8 +20,9 @@ type card struct {
 	context *providerContext
 	reader  string
 
-	mutex sync.Mutex
-	conn  *host.CardConn
+	mutex  sync.Mutex
+	conn   *host.CardConn
+	closed bool
 	// transaction records a claim taken and not yet given back, so a card
 	// disconnected mid-transaction does not leave the daemon's side claimed.
 	transaction bool
@@ -32,6 +34,9 @@ func (c *card) open() (*host.CardConn, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	if c.conn == nil {
+		if !c.closed {
+			return nil, winscard.ErrResetCard
+		}
 		return nil, winscard.ErrInvalidHandle
 	}
 	return c.conn, nil
@@ -46,28 +51,32 @@ func (c *card) Reconnect(share winscard.ShareMode, protocols winscard.Protocol, 
 	if !protocols.Has(winscard.ProtocolT1) {
 		return winscard.ProtocolUndefined, winscard.ErrProtoMismatch
 	}
-	conn, err := c.open()
-	if err != nil {
-		return winscard.ProtocolUndefined, err
-	}
-
 	// A reconnect is a disconnect with the initialization applied and a
 	// connect after it. Done here rather than at the daemon because the
 	// connection is the claim: a new card means a new connection either way,
 	// and an endpoint for it would only move these two calls across the wire.
 	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.closed {
+		return winscard.ProtocolUndefined, winscard.ErrInvalidHandle
+	}
+	if initialization == winscard.EjectCard {
+		return winscard.ProtocolUndefined, winscard.ErrUnsupportedFeature
+	}
+	if initialization != winscard.LeaveCard && initialization != winscard.ResetCard && initialization != winscard.UnpowerCard {
+		return winscard.ProtocolUndefined, winscard.ErrInvalidValue
+	}
+	conn := c.conn
 	c.conn, c.transaction = nil, false
-	c.mutex.Unlock()
-	_ = conn.Close(context.Background(), dispositionName(initialization))
+	if conn != nil {
+		_ = conn.Close(context.Background(), dispositionName(initialization))
+	}
 
 	opened, err := c.context.provider.client.OpenCard(context.Background(), c.reader)
 	if err != nil {
-		c.context.forget(c)
 		return winscard.ProtocolUndefined, translate(err)
 	}
-	c.mutex.Lock()
 	c.conn = opened
-	c.mutex.Unlock()
 	return winscard.ProtocolT1, nil
 }
 
@@ -81,11 +90,17 @@ func (c *card) Disconnect(disposition winscard.Disposition) error {
 // left open.
 func (c *card) close(disposition winscard.Disposition) error {
 	c.mutex.Lock()
+	if c.closed {
+		c.mutex.Unlock()
+		return winscard.ErrInvalidHandle
+	}
+	c.closed = true
 	conn, transaction := c.conn, c.transaction
 	c.conn, c.transaction = nil, false
 	c.mutex.Unlock()
 	if conn == nil {
-		return winscard.ErrInvalidHandle
+		c.context.forget(c)
+		return nil
 	}
 	c.context.forget(c)
 	if transaction {
@@ -132,7 +147,11 @@ func (c *card) Status() (winscard.Status, error) {
 		return winscard.Status{}, err
 	}
 	state := winscard.CardSpecific
-	if seen, err := c.context.provider.client.CardEvents(context.Background(), c.reader, 0, 0); err == nil && !seen.Present {
+	seen, err := c.context.provider.client.CardEvents(context.Background(), c.reader, 0, 0)
+	if err != nil {
+		return winscard.Status{}, translate(err)
+	}
+	if !seen.Present {
 		state = winscard.CardAbsent
 	}
 	return winscard.Status{
@@ -242,6 +261,13 @@ func translate(err error) error {
 	}
 	var failure *host.FailureError
 	if errors.As(err, &failure) {
+		if failure.Code() == "card_error" {
+			if suffix, ok := strings.CutPrefix(failure.Problem.Reason, "scard:"); ok && len(suffix) == 8 {
+				if number, err := strconv.ParseUint(suffix, 16, 32); err == nil && number&0xffff0000 == 0x80100000 {
+					return winscard.Code(number)
+				}
+			}
+		}
 		switch failure.Code() {
 		case "unknown_tuner":
 			return winscard.ErrUnknownReader

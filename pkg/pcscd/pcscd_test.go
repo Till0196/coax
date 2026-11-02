@@ -447,3 +447,30 @@ func TestUnknownCommandDropsTheClient(t *testing.T) {
 		t.Fatalf("the server answered an unknown command with %v, want the connection closed", err)
 	}
 }
+
+func TestUnsupportedFeatureUsesPCSCLiteStatus(t *testing.T) {
+	client := dial(t, running(t))
+	client.handshake(versionMajor, versionMinor)
+	context, result := client.establish()
+	if result != 0 {
+		t.Fatal(result)
+	}
+	raw := make([]byte, sizeConnect)
+	put(raw, 0, context)
+	putCString(raw[4:4+maxReaderName], "Fake Smart Card Reader 0")
+	order.PutUint32(raw[132:136], uint32(winscard.ShareShared))
+	order.PutUint32(raw[136:140], uint32(winscard.ProtocolT1))
+	client.send(cmdConnect, raw)
+	answer := client.receive(sizeConnect)
+	if result := order.Uint32(answer[148:152]); result != 0 {
+		t.Fatal(result)
+	}
+	raw = make([]byte, sizeControl)
+	put(raw, 0, order.Uint32(answer[140:144]))
+	put(raw, 3, 16)
+	client.send(cmdControl, raw)
+	answer = client.receive(sizeControl)
+	if got := field(answer, 5); got != 0x8010001f {
+		t.Fatalf("pcsc-lite control status=%08X", got)
+	}
+}

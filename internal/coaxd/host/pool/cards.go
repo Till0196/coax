@@ -3,7 +3,10 @@
 
 package pool
 
-import "github.com/Till0196/coax/internal/winscard/usbcard"
+import (
+	"github.com/Till0196/coax/internal/coaxd/device"
+	"github.com/Till0196/coax/internal/winscard/usbcard"
+)
 
 // Cards presents the pool as the source of boards the card provider draws on. A
 // PX-W3U4's card slot and its four tuners are one USB device whose interface can
@@ -62,7 +65,7 @@ func (c cardSource) Open(backend, selector string) (usbcard.Borrow, error) {
 			return usbcard.Borrow{}, ErrGone
 		}
 		return usbcard.Borrow{
-			Board: opened,
+			Board: failingCard{Board: opened, hold: hold},
 			Identity: usbcard.Identity{
 				Serial:     one.detected.Serial,
 				Port:       one.detected.Port,
@@ -75,4 +78,33 @@ func (c cardSource) Open(backend, selector string) (usbcard.Borrow, error) {
 		}, nil
 	}
 	return usbcard.Borrow{}, ErrUnknownTuner
+}
+
+// The hold belongs to one board generation. Never probe its reader again after
+// a failure has retired that generation and closed the underlying device.
+type failingCard struct {
+	device.Board
+	hold *CardHold
+}
+
+func (c failingCard) CardStatus() (device.CardStatus, error) {
+	if c.hold.Stale() {
+		return device.CardStatus{}, ErrGone
+	}
+	status, err := c.hold.Reader().CardStatus()
+	return status, c.hold.board.fail(err)
+}
+func (c failingCard) ResetCard() ([]byte, error) {
+	if c.hold.Stale() {
+		return nil, ErrGone
+	}
+	atr, err := c.hold.Reader().ResetCard()
+	return atr, c.hold.board.fail(err)
+}
+func (c failingCard) TransmitAPDU(apdu []byte) ([]byte, error) {
+	if c.hold.Stale() {
+		return nil, ErrGone
+	}
+	response, err := c.hold.Reader().TransmitAPDU(apdu)
+	return response, c.hold.board.fail(err)
 }

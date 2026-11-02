@@ -37,6 +37,7 @@ func TestIOKitErrorCodes(t *testing.T) {
 		reason string
 	}{
 		{kIOReturnNoDevice, backend.ErrGone, "no device"},
+		{kIOReturnNotResponding, backend.ErrGone, "not responding"},
 		{kIOReturnNotAttached, backend.ErrGone, "not attached"},
 		{kIOReturnUnsupported, backend.ErrUnsupported, "unsupported"},
 		{kIOReturnTimeout, backend.ErrTimeout, "timed out"},

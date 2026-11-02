@@ -86,6 +86,40 @@ func (c *connection) Reconnect(share winscard.ShareMode, protocols winscard.Prot
 	default:
 		return winscard.ProtocolUndefined, winscard.ErrInvalidValue
 	}
+	// Invalid dispositions must not alter an existing session.
+	if initialization == winscard.EjectCard {
+		return winscard.ProtocolUndefined, winscard.ErrUnsupportedFeature
+	}
+	if initialization != winscard.LeaveCard && initialization != winscard.ResetCard && initialization != winscard.UnpowerCard {
+		return winscard.ProtocolUndefined, winscard.ErrInvalidValue
+	}
+	one, err := c.context.provider.find(c.slot.cardDevice.name)
+	if err != nil {
+		return winscard.ProtocolUndefined, err
+	}
+	target := c.context.provider.slotFor(one)
+	if target != c.slot {
+		if err := target.admit(share); err != nil {
+			return winscard.ProtocolUndefined, err
+		}
+		target.claim(c)
+		if initialization != winscard.LeaveCard {
+			target.invalidate()
+		}
+		_, err := target.session()
+		target.drop()
+		if err != nil {
+			target.discharge(share)
+			return winscard.ProtocolUndefined, err
+		}
+		if c.transaction {
+			c.slot.drop()
+			c.transaction = false
+		}
+		c.slot.discharge(c.share)
+		c.slot, c.share = target, share
+		return winscard.ProtocolT1, nil
+	}
 	if err := c.dispose(initialization); err != nil {
 		return winscard.ProtocolUndefined, err
 	}
@@ -107,7 +141,7 @@ func (c *connection) Reconnect(share winscard.ShareMode, protocols winscard.Prot
 		c.share = share
 	}
 	c.slot.claim(c)
-	_, err := c.slot.session()
+	_, err = c.slot.session()
 	c.slot.drop()
 	if err != nil {
 		return winscard.ProtocolUndefined, err
@@ -139,6 +173,12 @@ func (c *connection) BeginTransaction() error {
 	defer c.mutex.Unlock()
 	if c.closed {
 		return winscard.ErrInvalidHandle
+	}
+	c.slot.state.Lock()
+	stale := c.slot.staleLocked()
+	c.slot.state.Unlock()
+	if stale {
+		return winscard.ErrRemovedCard
 	}
 	if c.transaction {
 		// PC/SC transactions do not nest for one connection; a second begin is
@@ -176,9 +216,7 @@ func (c *connection) Status() (winscard.Status, error) {
 	if c.closed {
 		return winscard.Status{}, winscard.ErrInvalidHandle
 	}
-	c.slot.claim(c)
 	present, _, err := c.slot.look()
-	c.slot.drop()
 	if err != nil {
 		return winscard.Status{}, err
 	}
