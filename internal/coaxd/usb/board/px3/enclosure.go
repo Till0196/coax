@@ -5,6 +5,7 @@ package px3
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -13,20 +14,15 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/device"
 	"github.com/Till0196/coax/internal/coaxd/trace"
 	"github.com/Till0196/coax/internal/coaxd/usb/bridge/asv5211"
+	"github.com/Till0196/coax/pkg/i2c"
 	"github.com/Till0196/coax/pkg/usbio"
 )
 
-// The PX-W3U3 V2 is two bridges behind a hub, each streaming one satellite and
-// one terrestrial tuner, but only one of them drives anything. The board is
-// powered up, and all four demodulators and tuners are reached, through the
-// bridge at position zero; the one at position one has nothing on its GPIO or
-// I2C and only carries the stream of the second pair. So a V2
-// board opened on its second bridge has to borrow the first, and both boards
-// share what is behind it.
-//
-// Every open in this process goes through the shared table below, because
-// neither WinUSB nor usbfs lets a device be claimed twice: the first bridge
-// has to be the same handle whether its own board or its sibling holds it.
+// Each W3U2/W3U3 enclosure has two streaming bridges. The original generation
+// controls each RF pair through its own bridge; V2 controls both through the
+// even-position bridge. Opening either pair initializes and retains the whole
+// enclosure so a second open cannot reset a pair already in use.
+// USB handles are shared because WinUSB and usbfs cannot claim a device twice.
 
 // sharedBridge is an opened bridge and how many holders it has.
 type sharedBridge struct {
@@ -93,18 +89,35 @@ func position(bridge *asv5211.Bridge) (int, error) {
 	return [4]int{0, 2, 1, 3}[info[len(info)-1]>>6], nil
 }
 
-// enclosure is the part of a V2 both of its bridges share: the controlling
-// bridge, and the demodulators and tuners of both pairs behind it.
+// enclosure owns the initialized RF pairs and the USB references backing them.
 type enclosure struct {
-	controller *sharedBridge
-	refs       int
-	// pairs is each position's front ends, by position within the pair.
-	pairs [2]frontEnds
-	// lnb is the aerial supply, switched on the controlling bridge for both.
-	lnb *device.Latch
-	// chips is the card interface ICs in the four tuners' stream paths, reached
-	// through the controlling bridge for both.
-	chips tsChips
+	key   string
+	holds []*sharedBridge
+	refs  int
+	pairs [2]enclosurePair
+}
+
+// enclosurePair keeps each RF pair with its control bus and shared resources.
+type enclosurePair struct {
+	frontEnds
+	*controller
+}
+
+// controller owns the state reached through one control bridge. V2 shares it
+// between both RF pairs; the FC0012 boards have one per bridge.
+type controller struct {
+	control  *asv5211.Bridge
+	lnb      *device.Latch
+	chips    *tsChips
+	card     card
+	slowdown struct {
+		sync.Mutex
+		probed, present bool
+	}
+	amplifiers struct {
+		sync.Mutex
+		on [2]bool
+	}
 }
 
 // frontEnds is one bridge's worth of demodulators and tuners.
@@ -115,45 +128,166 @@ type frontEnds struct {
 	tunerS         satelliteTuner
 }
 
-// openV2Enclosure finds or brings up the enclosure a V2 bridge belongs to. own is
-// the bridge being opened and at is its position; the controlling bridge is the
-// even position below it.
-func openV2Enclosure(own *sharedBridge, at int) (*enclosure, error) {
+func (ends *frontEnds) configureDemods(control boardControl, setups []demodSetup) error {
+	demods := [2]*tc90522.Demod{satellite: ends.demodS, terrestrial: ends.demodT}
+	for _, setup := range setups {
+		demod := demods[setup.index]
+		if setup.address != 0 {
+			demod = tc90522.New(control.I2C(setup.address), setup.address, false)
+		}
+		if err := demod.WritePairs(setup.pairs); err != nil {
+			return fmt.Errorf("configure TC90522 for tuner %d: %w", setup.index, err)
+		}
+	}
+	return nil
+}
+
+// openEnclosure initializes a whole enclosure once, publishing it only after
+// every RF pair is ready. Until then, acquired USB references belong to this call.
+func openEnclosure(own *sharedBridge) (*enclosure, int, error) {
 	sharedMutex.Lock()
 	defer sharedMutex.Unlock()
-	controller := own
-	if at%2 == 1 {
-		location, err := siblingOf(own.location)
-		if err != nil {
-			return nil, err
-		}
-		if found := enclosures[location]; found != nil {
-			found.refs++
-			return found, nil
-		}
-		if controller, err = acquireLocked(location, 0); err != nil {
-			return nil, fmt.Errorf("open the bridge that drives this one: %w", err)
-		}
-		if first, err := position(controller.bridge); err != nil || first != at-1 {
-			_ = controller.releaseLocked()
-			if err == nil {
-				err = fmt.Errorf("its sibling %s is at position %d, not %d", location, first, at-1)
-			}
-			return nil, fmt.Errorf("find the bridge that drives this one: %w", err)
-		}
-	} else {
-		if found := enclosures[own.location]; found != nil {
-			found.refs++
-			return found, nil
-		}
-		controller.refs++
-	}
-	built, err := bringUpV2(controller)
+	product := own.bridge.ProductID()
+	locations, at, err := locateEnclosure(own)
 	if err != nil {
-		_ = controller.releaseLocked()
-		return nil, err
+		return nil, 0, err
 	}
-	enclosures[controller.location] = built
+	key := locations[0]
+	if found := enclosures[key]; found != nil {
+		found.refs++
+		return found, at, nil
+	}
+	var holds []*sharedBridge
+	ready := false
+	defer func() {
+		if !ready {
+			_ = releaseBridgesLocked(holds)
+		}
+	}()
+	for _, location := range locations {
+		held := own
+		if location == own.location {
+			held.refs++
+		} else {
+			held, err = acquireLocked(location, 0)
+			if err != nil {
+				return nil, 0, fmt.Errorf("open enclosure bridge %s: %w", location, err)
+			}
+		}
+		holds = append(holds, held)
+	}
+	if product == v2Product && at%2 == 1 {
+		first, err := position(holds[0].bridge)
+		if err != nil {
+			return nil, 0, err
+		}
+		if first != at-1 {
+			return nil, 0, fmt.Errorf("enclosure controller %s is at position %d, want %d", key, first, at-1)
+		}
+	}
+	built, err := initializeEnclosure(holds, product)
+	if err != nil {
+		return nil, 0, err
+	}
+	enclosures[key] = built
+	ready = true
+	return built, at, nil
+}
+
+// locateEnclosure returns control bridge locations in pair order and the
+// streaming bridge's position. V2 needs only its shared controller retained.
+func locateEnclosure(own *sharedBridge) ([]string, int, error) {
+	product := own.bridge.ProductID()
+	if product == v2Product {
+		at, err := position(own.bridge)
+		if err != nil {
+			return nil, 0, err
+		}
+		if at > 1 {
+			return nil, 0, fmt.Errorf("PX-W3U3 V2 bridge %s reports unsupported position %d", own.location, at)
+		}
+		location := own.location
+		if at%2 == 1 {
+			location, err = siblingOf(own.location, product)
+			if err != nil {
+				return nil, 0, err
+			}
+		}
+		return []string{location}, at, nil
+	}
+	if product != 0x0004 && product != 0x0005 {
+		return []string{own.location}, 0, nil
+	}
+	sibling, err := siblingOf(own.location, product)
+	if err != nil {
+		return nil, 0, err
+	}
+	locations := enclosureLocations(own.location, sibling)
+	at := 0
+	if locations[0] != own.location {
+		at = 1
+	}
+	return locations, at, nil
+}
+
+// Both USB opens must pick the same cache key without interpreting the V2-only
+// customer position field on the original hardware.
+func enclosureLocations(own, sibling string) []string {
+	if own < sibling {
+		return []string{own, sibling}
+	}
+	return []string{sibling, own}
+}
+
+func releaseBridgesLocked(holds []*sharedBridge) error {
+	var first error
+	for at := len(holds) - 1; at >= 0; at-- {
+		if err := holds[at].releaseLocked(); first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+// initializeEnclosure preserves each product's control topology: W3U2/W3U3
+// power each pair through its own bridge, while V2 powers both through one.
+func initializeEnclosure(holds []*sharedBridge, product uint16) (*enclosure, error) {
+	built := &enclosure{key: holds[0].location, holds: holds, refs: 1}
+	sharedControl := product == v2Product
+	pairCount := len(holds)
+	if sharedControl {
+		pairCount = len(built.pairs)
+	}
+	for at := 0; at < pairCount; at++ {
+		controlAt := at
+		wired := wiringFor(product)
+		if sharedControl {
+			controlAt = 0
+			wired = v2WiringAt(at)
+		}
+		bridge := holds[controlAt].bridge
+		pair := enclosurePair{}
+		if sharedControl && at > 0 {
+			pair.controller = built.pairs[0].controller
+		} else {
+			if err := powerUpBoard(bridge, product); err != nil {
+				return nil, fmt.Errorf("power enclosure bridge %s up: %w", bridge.Name(), err)
+			}
+			on := wired.lnbSupplyOn
+			pair.controller = &controller{control: bridge, chips: &tsChips{}}
+			pair.amplifiers.on = [2]bool{true, true}
+			pair.lnb = device.NewLatch(
+				func() error { return bridge.SetGPIO(on, lnbSupplyMask) },
+				func() error { return bridge.SetGPIO(^on&lnbSupplyMask, lnbSupplyMask) },
+			)
+		}
+		ends, err := newFrontEnds(bridge, wired)
+		if err != nil {
+			return nil, fmt.Errorf("initialize enclosure pair %d through %s: %w", at, bridge.Name(), err)
+		}
+		pair.frontEnds = ends
+		built.pairs[at] = pair
+	}
 	return built, nil
 }
 
@@ -165,35 +299,45 @@ func (enclosure *enclosure) release() error {
 	if enclosure.refs > 0 {
 		return nil
 	}
-	delete(enclosures, enclosure.controller.location)
-	return enclosure.controller.releaseLocked()
+	delete(enclosures, enclosure.key)
+	return releaseBridgesLocked(enclosure.holds)
 }
 
-// siblingOf finds the other V2 bridge behind the same hub as the one at location.
-func siblingOf(location string) (string, error) {
+// siblingOf finds the other bridge of the same product behind the same hub.
+func siblingOf(location string, product uint16) (string, error) {
 	attached, err := usbio.Devices()
 	if err != nil {
 		return "", err
 	}
+	return enclosureSibling(attached, location, product)
+}
+
+func enclosureSibling(attached []usbio.Attached, location string, product uint16) (string, error) {
 	var own usbio.Attached
 	for _, candidate := range attached {
 		if candidate.Location == location {
 			own = candidate
 		}
 	}
+	if own.Location == "" {
+		return "", fmt.Errorf("the enclosure bridge %s is no longer attached", location)
+	}
 	var found []string
 	for _, candidate := range attached {
-		if candidate.Location == location || candidate.ID != (usbio.ID{Vendor: 0x0b06, Product: v2Product}) {
+		if candidate.Location == location || candidate.ID != (usbio.ID{Vendor: 0x0b06, Product: product}) {
 			continue
 		}
-		if own.Port != "" && parentPort(candidate.Port) != parentPort(own.Port) {
-			continue
+		if own.Port != "" {
+			if !strings.Contains(own.Port, ".") || !strings.Contains(candidate.Port, ".") ||
+				parentPort(candidate.Port) != parentPort(own.Port) {
+				continue
+			}
 		}
 		found = append(found, candidate.Location)
 	}
-	trace.Printf("px3 %s (port %q): candidates for the first bridge %v", location, own.Port, found)
+	trace.Printf("px3 %s (port %q): enclosure sibling candidates %v", location, own.Port, found)
 	if len(found) != 1 {
-		return "", fmt.Errorf("the PX-W3U3 V2 bridge at %s is the second of its enclosure, and %d bridges could be the first", location, len(found))
+		return "", fmt.Errorf("the bridge at %s has %d possible enclosure siblings", location, len(found))
 	}
 	return found[0], nil
 }
@@ -206,37 +350,7 @@ func parentPort(port string) string {
 	return port
 }
 
-// bringUpV2 powers a V2 up through its controlling bridge and brings up both
-// pairs of front ends, on the first tuner opened.
-func bringUpV2(controller *sharedBridge) (*enclosure, error) {
-	bridge := controller.bridge
-	trace.Printf("px3 %s: powering the PX-W3U3 V2 up", controller.location)
-	for _, step := range v2PowerUp {
-		if err := bridge.SetGPIO(step.value, step.mask); err != nil {
-			return nil, fmt.Errorf("power the PX-W3U3 V2 up: %w", err)
-		}
-		time.Sleep(step.wait)
-	}
-	built := &enclosure{controller: controller, refs: 1}
-	built.lnb = device.NewLatch(
-		func() error { return bridge.SetGPIO(lnbSupplyMask, lnbSupplyMask) },
-		func() error { return bridge.SetGPIO(0, lnbSupplyMask) },
-	)
-	for at := range built.pairs {
-		ends, err := newFrontEnds(bridge, v2WiringAt(at), v2SatelliteInit)
-		if err != nil {
-			return nil, fmt.Errorf("bring up the PX-W3U3 V2's front ends at position %d: %w", at, err)
-		}
-		built.pairs[at] = ends
-		trace.Printf("px3 %s: pair %d up, demodulators %#02x/%#02x", controller.location, at,
-			ends.wired.demodTerrestrial, ends.wired.demodSatellite)
-	}
-	return built, nil
-}
-
-// v2PowerUp is the power-up of a V2, all of it on the bridge at position zero.
-// The EEPROM at 0xa8 is read partway through; nothing here reads it, but
-// the pause that read takes is kept.
+// v2PowerUp powers both RF pairs through the controlling bridge.
 var v2PowerUp = []gpioStep{
 	{value: 0x08, mask: 0x08, wait: 50 * time.Millisecond},
 	{value: 0, mask: 0x08, wait: 50 * time.Millisecond},
@@ -250,6 +364,131 @@ var v2PowerUp = []gpioStep{
 	{value: 0, mask: 0x40, wait: 110 * time.Millisecond},
 }
 
-// v2SatelliteInit is what each satellite demodulator of a V2 takes before its
-// tuner is brought up.
-var v2SatelliteInit = []byte{0x13, 0, 0x15, 0, 0x17, 0, 0x1c, 0, 0x1d, 0, 0x1f, 0, 0x07, 0x31, 0x08, 0x77, 0x04, 0x02}
+// newFrontEnds brings up one pair of demodulators and tuners, reached through
+// control.
+func newFrontEnds(control boardControl, wired wiring) (frontEnds, error) {
+	ends := frontEnds{wired: wired}
+	terrestrialBus := control.I2C(wired.demodTerrestrial)
+	satelliteBus := control.I2C(wired.demodSatellite)
+	ends.demodT = tc90522.New(terrestrialBus, wired.demodTerrestrial, false)
+	ends.demodS = tc90522.New(satelliteBus, wired.demodSatellite, false)
+	// Initialize the demodulator before the tuner uses its I2C repeater.
+	// Both generations use the common TC90522 terrestrial setup.
+	defaults := slices.Clone(tc90522.InitTerrestrial)
+	for at := 0; at < len(defaults); at += 2 {
+		if defaults[at] == 0xb8 {
+			defaults[at+1] = wired.terrestrialB8
+		}
+	}
+	if err := ends.demodT.WritePairs(defaults); err != nil {
+		return frontEnds{}, fmt.Errorf("initialize terrestrial TC90522: %w", err)
+	}
+	if err := ends.configureDemods(control, wired.beforeRF); err != nil {
+		return frontEnds{}, err
+	}
+	var err error
+	if ends.tunerT, err = wired.newTerrestrial(terrestrialBus, wired.demodTerrestrial); err != nil {
+		return frontEnds{}, fmt.Errorf("initialize the terrestrial tuner behind %#02x: %w", wired.demodTerrestrial, err)
+	}
+	if ends.tunerS, err = wired.newSatellite(ends.demodS.TunerBus()); err != nil {
+		return frontEnds{}, fmt.Errorf("initialize the satellite tuner behind %#02x: %w", wired.demodSatellite, err)
+	}
+	if err := ends.configureDemods(control, wired.afterRF); err != nil {
+		return frontEnds{}, err
+	}
+	return ends, nil
+}
+
+// gpioStep is one masked GPIO write of a power-up sequence and the settle after
+// it.
+type gpioStep struct {
+	extended    bool
+	value, mask byte
+	wait        time.Duration
+}
+
+// powerUpSequences selects the GPIO sequence for each product.
+var powerUpSequences = map[uint16][]gpioStep{
+	// PX-S3U
+	0x0001: {
+		{value: 0, mask: 0x08, wait: 50 * time.Millisecond},
+		{value: 0x44, mask: 0x44, wait: 50 * time.Millisecond},
+		{value: 0, mask: 0x44, wait: 50 * time.Millisecond},
+		{value: 0x44, mask: 0x44, wait: 50 * time.Millisecond},
+		{value: 0, mask: 0x20, wait: 100 * time.Millisecond},
+		{value: 0x20, mask: 0x20, wait: 100 * time.Millisecond},
+	},
+	// PX-S3U2
+	0x0003: {
+		{value: 0x05, mask: 0x05, wait: 10 * time.Millisecond},
+		{value: 0, mask: 0x04, wait: 10 * time.Millisecond},
+		{value: 0x05, mask: 0x05, wait: 10 * time.Millisecond},
+		{value: 0, mask: 0x20, wait: 10 * time.Millisecond},
+		{value: 0x20, mask: 0x20, wait: 10 * time.Millisecond},
+		{value: 0, mask: 0x20, wait: 10 * time.Millisecond},
+		{value: 0x10, mask: 0x10, wait: 10 * time.Millisecond},
+		{value: 0, mask: 0x10, wait: 10 * time.Millisecond},
+		{value: 0x10, mask: 0x10, wait: 10 * time.Millisecond},
+		{extended: true, value: 0, mask: 0x01, wait: 10 * time.Millisecond},
+		{value: 0x40, mask: 0x40, wait: 10 * time.Millisecond},
+		{value: 0, mask: 0x40, wait: 10 * time.Millisecond},
+		{value: 0x40, mask: 0x40, wait: 10 * time.Millisecond},
+		{value: 0, mask: 0x80, wait: 10 * time.Millisecond},
+		{value: 0x80, mask: 0x80, wait: 10 * time.Millisecond},
+		{value: 0, mask: 0x80, wait: 10 * time.Millisecond},
+		{extended: true, value: 0, mask: 0x02, wait: 100 * time.Millisecond},
+	},
+	// PX-W3U2 and PX-W3U3
+	0x0004: w3PowerUp,
+	0x0005: w3PowerUp,
+	// PX-W3U3 V2
+	v2Product: v2PowerUp,
+}
+
+var w3PowerUp = []gpioStep{
+	// Initialize standby and LNA lines while preserving sibling GPIO 0x40.
+	{value: 0x27, mask: 0xbb},
+	{value: 0x05, mask: 0x05, wait: 10 * time.Millisecond},
+	{value: 0, mask: 0x04, wait: 10 * time.Millisecond},
+	{value: 0x05, mask: 0x05, wait: 10 * time.Millisecond},
+	{value: 0x10, mask: 0x10, wait: 10 * time.Millisecond},
+	{value: 0, mask: 0x10, wait: 10 * time.Millisecond},
+	{value: 0x10, mask: 0x10, wait: 10 * time.Millisecond},
+	{value: 0x20, mask: 0x20, wait: 110 * time.Millisecond},
+}
+
+type boardControl interface {
+	SetGPIO(value, mask byte) error
+	SetGPIOEx(value, mask byte) error
+	I2C(target byte) i2c.Bus
+}
+
+// powerUpBoard applies GPIO initialization before preparing the RF pair.
+func powerUpBoard(control boardControl, product uint16) error {
+	steps, known := powerUpSequences[product]
+	if !known {
+		return fmt.Errorf("no power-up sequence for product ID %#04x", product)
+	}
+	for _, step := range steps {
+		write := control.SetGPIO
+		if step.extended {
+			write = control.SetGPIOEx
+		}
+		if err := write(step.value, step.mask); err != nil {
+			return err
+		}
+		time.Sleep(step.wait)
+	}
+	if product == 0x0004 || product == 0x0005 {
+		// Pulse control bit 0x10 while keeping bit 0x20 set.
+		demod := tc90522.New(control.I2C(0x30), 0x30, false)
+		if err := demod.WriteRegisterMask(0x1c, 0x30, 0x30); err != nil {
+			return fmt.Errorf("set W3U2/W3U3 demodulator control bits: %w", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+		if err := demod.WriteRegisterMask(0x1c, 0, 0x10); err != nil {
+			return fmt.Errorf("finish W3U2/W3U3 demodulator control pulse: %w", err)
+		}
+	}
+	return nil
+}

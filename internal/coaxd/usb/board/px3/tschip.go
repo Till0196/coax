@@ -16,9 +16,9 @@ import (
 // directly: it passes through the card interface IC (ASIE5606 and its
 // successors), which has to be brought up before the first stream: without it
 // no packets reach the bridge. It is reset and read when the board is opened,
-// and only register 5 is written as a stream starts. On the V2 all of it goes
-// through the controlling bridge, since its second bridge carries nothing but
-// its streams.
+// and its output and transport seed are set as a stream starts. On the V2 all
+// of it goes through the controlling bridge, since its second bridge carries
+// nothing but its streams.
 //
 //   - a reset pulse on a GPIO line (0x11 for the first unit, 0x80 for any
 //     other, unless that one shares the first's IC);
@@ -27,15 +27,17 @@ import (
 //   - for revisions 0x03, 0x0f and 0x10, register 5 written from the
 //     demodulator bring-up's answer, which is always 0xe9: bit 1 would give
 //     0x10, bit 3 gives 0x20. Revisions 0x0f and 0x10 serve both tuners of a
-//     bridge and are written once; the V2's revisions 0x12 to 0x14 get no
-//     write at all.
+//     bridge; the V2's revisions 0x12 to 0x14 get no output-register write.
 
 // tsChipShared are the revisions of an IC that serves both tuners of a bridge.
 var tsChipShared = []byte{0x0f, 0x10, 0x12, 0x13, 0x14}
 
+var cardAddresses = []byte{0x5a, 0x4a}
+
 // tsChipOutput is the register the TS output is configured in, and the value
 // that turns it on.
 const (
+	cardIdentityRegister = 0x09
 	tsChipOutputRegister = 0x05
 	tsChipOutput         = 0x20
 )
@@ -47,7 +49,7 @@ type tsChip struct {
 }
 
 // tsChips is what has been found in one enclosure, by unit: the tuner index on
-// the older boards, 2*position + index on the V2, whose two bridges share one
+// the FC0012 boards, 2*position + index on the V2, whose two bridges share one
 // set of ICs behind the controlling bridge.
 type tsChips struct {
 	sync.Mutex
@@ -63,8 +65,8 @@ func (hardware *hardware) unit(index int) int {
 }
 
 // initTSChip resets and finds the IC in a tuner's stream path, when the board
-// is opened, after the front ends and before the first tune. One already found is left alone: resetting it again would cut a
-// stream running through it.
+// is opened, after the front ends and before the first tune. An IC already
+// found is left alone: resetting it again would cut a stream running through it.
 func (hardware *hardware) initTSChip(index int) error {
 	hardware.chips.Lock()
 	defer hardware.chips.Unlock()
@@ -72,8 +74,8 @@ func (hardware *hardware) initTSChip(index int) error {
 	return err
 }
 
-// prepareTSChip writes the output register of the IC in a tuner's stream path
-// on each stream, looking for the IC again if the open did not find it.
+// prepareTSChip configures the IC's output and seed before a stream starts,
+// looking for the IC again if the open did not find it.
 func (hardware *hardware) prepareTSChip(index int) error {
 	hardware.chips.Lock()
 	defer hardware.chips.Unlock()
@@ -82,39 +84,37 @@ func (hardware *hardware) prepareTSChip(index int) error {
 		return err
 	}
 	switch chip.revision {
-	case 0x03:
-	case 0x0f, 0x10:
-		// One IC for both tuners of a bridge: it is written for the first.
-		if index != 0 && hardware.chips.found[hardware.unit(0)] == chip {
-			return nil
+	case 0x03, 0x0f, 0x10:
+		if err := hardware.control.OpenCardBus(chip.address).Write(tsChipOutputRegister, []byte{tsChipOutput}); err != nil {
+			return err
 		}
-	default:
-		return nil
 	}
-	return hardware.control.OpenCardBus(chip.address).Write(tsChipOutputRegister, []byte{tsChipOutput})
+	return hardware.writeStreamSetup(chip)
 }
 
 // lookUpTSChip returns the IC in a tuner's stream path, finding it first if it
 // has not been. The caller holds hardware.chips.
 func (hardware *hardware) lookUpTSChip(index int) (*tsChip, error) {
-	unit := hardware.unit(index)
+	return hardware.lookUpTSUnit(hardware.unit(index))
+}
+
+// lookUpTSUnit finds an enclosure unit. The caller holds hardware.chips.
+func (hardware *hardware) lookUpTSUnit(unit int) (*tsChip, error) {
 	if chip := hardware.chips.found[unit]; chip != nil {
 		return chip, nil
 	}
 	chip, err := hardware.findTSChip(unit)
 	// The reset pulse shares its GPIO bank with the V2's amplifier lines, so put
 	// them back where they were asked to be.
-	for tuner, on := range hardware.amplifierOn {
-		if err := hardware.setExternalAmplifier(tuner, on); err != nil {
-			return nil, err
-		}
+	if restoreErr := hardware.restoreExternalAmplifiers(satellite, terrestrial); restoreErr != nil {
+		return nil, restoreErr
 	}
 	if err != nil {
 		return nil, err
 	}
 	hardware.chips.found[unit] = chip
-	trace.Printf("px3 %s: tuner %d (unit %d) streams through the card interface at %#02x, revision %#02x",
-		hardware.bridge.Name(), index, unit, chip.address, chip.revision)
+	trace.Printf("px3 %s: unit %d streams through the card interface at %#02x, revision %#02x",
+		hardware.bridge.Name(), unit, chip.address, chip.revision)
 	return chip, nil
 }
 
@@ -122,14 +122,14 @@ func (hardware *hardware) lookUpTSChip(index int) (*tsChip, error) {
 // holds hardware.chips.
 func (hardware *hardware) findTSChip(unit int) (*tsChip, error) {
 	if unit == 0 {
-		return hardware.resetTSChip(0x11, []byte{0x5a, 0x4a})
+		return hardware.resetTSChip(0x11, cardAddresses)
 	}
 	// A unit whose IC is the first's shares it and does not reset it again: that
 	// would cut the first unit's stream.
 	if other := hardware.chips.found[0]; other != nil && slices.Contains(tsChipShared, other.revision) {
 		return other, nil
 	}
-	addresses := []byte{0x5a, 0x4a}
+	addresses := cardAddresses
 	if hardware.v2 {
 		addresses = []byte{0x5c, 0x4c}
 	}
@@ -139,7 +139,7 @@ func (hardware *hardware) findTSChip(unit int) (*tsChip, error) {
 	}
 	// No IC of its own, and the first unit's not brought up yet: bring that one
 	// up, and take it if it is one that serves more than one tuner.
-	first, firstErr := hardware.resetTSChip(0x11, []byte{0x5a, 0x4a})
+	first, firstErr := hardware.resetTSChip(0x11, cardAddresses)
 	if firstErr != nil {
 		return nil, err
 	}

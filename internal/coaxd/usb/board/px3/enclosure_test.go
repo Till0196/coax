@@ -3,7 +3,84 @@
 
 package px3
 
-import "testing"
+import (
+	"fmt"
+	"reflect"
+	"testing"
+
+	"github.com/Till0196/coax/pkg/usbio"
+)
+
+func TestOriginalEnclosureUsesTheSamePairFromEitherBridge(t *testing.T) {
+	id := usbio.ID{Vendor: 0x0b06, Product: 0x0005}
+	attached := []usbio.Attached{
+		{ID: id, Location: "001:010", Port: "1-2.1"},
+		{ID: id, Location: "001:011", Port: "1-2.2"},
+		{ID: id, Location: "001:012", Port: "1-3.1"},
+		{ID: id, Location: "001:013", Port: "1-3.2"},
+		{ID: usbio.ID{Vendor: 0x0b06, Product: v2Product}, Location: "001:014", Port: "1-2.3"},
+	}
+	for _, own := range attached[:2] {
+		sibling, err := enclosureSibling(attached, own.Location, id.Product)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := enclosureLocations(own.Location, sibling); !reflect.DeepEqual(got, []string{"001:010", "001:011"}) {
+			t.Fatalf("opening %s selected enclosure %v", own.Location, got)
+		}
+	}
+	if _, err := enclosureSibling(attached[:1], attached[0].Location, id.Product); err == nil {
+		t.Fatal("accepted an enclosure missing its second bridge")
+	}
+	for _, ports := range [][2]string{{"1-2", "1-2.1"}, {"1-2.1", "1-2"}} {
+		candidates := append([]usbio.Attached(nil), attached[:2]...)
+		candidates[0].Port, candidates[1].Port = ports[0], ports[1]
+		if _, err := enclosureSibling(candidates, candidates[0].Location, id.Product); err == nil {
+			t.Fatal("paired a USB parent with its child")
+		}
+	}
+	attached = append(attached, usbio.Attached{ID: id, Location: "001:015", Port: "1-2.4"})
+	if _, err := enclosureSibling(attached, attached[0].Location, id.Product); err == nil {
+		t.Fatal("selected an ambiguous sibling")
+	}
+}
+
+func TestEnclosureRetainsBridgesUntilItsLastUserCloses(t *testing.T) {
+	for _, count := range []int{1, 2} {
+		t.Run(fmt.Sprintf("%d control bridges", count), func(t *testing.T) {
+			var holds []*sharedBridge
+			for at := 0; at < count; at++ {
+				// One independent USB owner plus the enclosure's reference.
+				holds = append(holds, &sharedBridge{location: fmt.Sprintf("test:%d", at), refs: 2})
+			}
+			built := &enclosure{key: holds[0].location, holds: holds, refs: 2}
+			enclosures[built.key] = built
+			t.Cleanup(func() { delete(enclosures, built.key) })
+			if err := built.release(); err != nil {
+				t.Fatal(err)
+			}
+			for _, held := range holds {
+				if held.refs != 2 {
+					t.Fatal("released a bridge while its enclosure was still in use")
+				}
+			}
+			if enclosures[built.key] != built {
+				t.Fatal("removed an enclosure still in use")
+			}
+			if err := built.release(); err != nil {
+				t.Fatal(err)
+			}
+			for _, held := range holds {
+				if held.refs != 1 {
+					t.Fatal("did not release an enclosure bridge reference")
+				}
+			}
+			if enclosures[built.key] != nil {
+				t.Fatal("retained an unused enclosure")
+			}
+		})
+	}
+}
 
 // TestTheV2sSecondPairIsUnitsTwoAndThree: the bridge at position one streams
 // units two and three, whose demodulators sit at 0x24 and 0x26 behind the

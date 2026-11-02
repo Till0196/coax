@@ -27,7 +27,7 @@ type plainTuner struct{}
 func (plainTuner) Tune(uint32) error { return nil }
 
 func terrestrialFront(tuner terrestrialTuner) *frontend {
-	return &frontend{hardware: &hardware{tunerT: tuner}, index: terrestrial}
+	return &frontend{hardware: &hardware{frontEnds: frontEnds{tunerT: tuner}}, index: terrestrial}
 }
 
 func TestTheLadderIsTheFC0012s(t *testing.T) {
@@ -53,7 +53,7 @@ func TestOnlyADriveableTunerOffersALadder(t *testing.T) {
 	if terrestrialFront(plainTuner{}).GainLadder("ISDBT").Usable() {
 		t.Error("a tuner with no gain setting claimed one")
 	}
-	satelliteFront := &frontend{hardware: &hardware{tunerT: &laddered{}}, index: satellite}
+	satelliteFront := &frontend{hardware: &hardware{frontEnds: frontEnds{tunerT: &laddered{}}}, index: satellite}
 	if satelliteFront.GainLadder("ISDBS").Usable() {
 		t.Error("the satellite tuner claimed the terrestrial tuner's ladder")
 	}
@@ -112,18 +112,18 @@ func TestTheV2SwitchesAreWrittenTheWayTheBoardIsWired(t *testing.T) {
 }
 
 // TestTheV2OffersASwitchAndTheOlderBoardsALadder: the V2 offers a switch on
-// both tuners, the older boards a ladder on one.
+// both tuners, the FC0012 boards a ladder on one.
 func TestTheV2OffersASwitchAndTheOlderBoardsALadder(t *testing.T) {
 	for _, index := range []int{terrestrial, satellite} {
-		front := &frontend{hardware: &hardware{wired: v2Wiring}, index: index}
+		front := &frontend{hardware: &hardware{frontEnds: frontEnds{wired: v2Wiring}}, index: index}
 		ladder := front.GainLadder("ISDBT")
 		if ladder.Steps != 2 || len(ladder.Decibels) != 0 {
 			t.Errorf("the V2's tuner %d offers %+v, want a two-step switch with no figures", index, ladder)
 		}
 	}
-	older := &frontend{hardware: &hardware{wired: olderWiring, tunerT: &laddered{}}, index: terrestrial}
-	if got := older.GainLadder("ISDBT"); len(got.Decibels) == 0 {
-		t.Error("the older boards' terrestrial tuner lost its ladder")
+	fc0012Board := &frontend{hardware: &hardware{frontEnds: frontEnds{wired: fc0012Wiring, tunerT: &laddered{}}}, index: terrestrial}
+	if got := fc0012Board.GainLadder("ISDBT"); len(got.Decibels) == 0 {
+		t.Error("the FC0012 boards' terrestrial tuner lost its ladder")
 	}
 }
 

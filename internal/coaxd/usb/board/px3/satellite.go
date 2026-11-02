@@ -11,7 +11,7 @@ import (
 	"github.com/Till0196/coax/pkg/i2c"
 )
 
-// The satellite tuner on the older boards is a QM1D1B0004, the same chip the
+// The satellite tuner on the FC0012 boards is a QM1D1B0004, the same chip the
 // PT1 and PT2 carry but driven differently: the divider is programmed with the
 // charge pump hard and backed off once the loop has pulled in, which is what
 // lets the wait be ten milliseconds rather than twenty. It is never read from
@@ -37,7 +37,7 @@ const (
 // it.
 const satelliteBlockAlias = "110BS"
 
-// newSatelliteTuner builds the older boards' front end on the demodulator's
+// newSatelliteTuner builds the FC0012 boards' front end on the demodulator's
 // tuner bus, so a write comes out on the far side of the repeater.
 func newSatelliteTuner(bus i2c.Bus) *qm1d1b0004.Tuner {
 	return qm1d1b0004.New(bus, satelliteAddress, qm1d1b0004.Config{
@@ -46,7 +46,7 @@ func newSatelliteTuner(bus i2c.Bus) *qm1d1b0004.Tuner {
 	})
 }
 
-// tableSatelliteTuner is the older boards' satellite front end. It answers in
+// tableSatelliteTuner is the FC0012 boards' satellite front end. It answers in
 // intermediate frequencies and so does the chip, so there is nothing to
 // convert.
 type tableSatelliteTuner struct{ tuner *qm1d1b0004.Tuner }

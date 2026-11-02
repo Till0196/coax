@@ -76,14 +76,9 @@ func (tuner *Tuner) read32(register uint16) (uint32, error) {
 	return binary.LittleEndian.Uint32(data), nil
 }
 
-// Initialize loads the NM120 RF and baseband defaults.
+// Initialize loads the NM120 RF and baseband defaults. The board must prepare
+// the TC90522 demodulator and its I2C repeater before calling this method.
 func (tuner *Tuner) Initialize() error {
-	initial := [][2]byte{{0xb0, 0xa0}, {0xb2, 0x3d}, {0xb3, 0x25}, {0xb4, 0x8b}, {0xb5, 0x4b}, {0xb6, 0x3f}, {0xb7, 0xff}, {0xb8, 0xc0}, {0x03, 0}, {0x1d, 0}, {0x1f, 0}, {0x0e, 0x77}, {0x0f, 0x13}, {0x75, 0x02}}
-	for _, pair := range initial {
-		if err := tuner.write8(pair[0], pair[1]); err != nil {
-			return err
-		}
-	}
 	rf := [][2]byte{{6, 72}, {7, 64}, {10, 235}, {11, 17}, {12, 16}, {13, 136}, {16, 4}, {17, 48}, {18, 48}, {21, 170}, {22, 3}, {23, 128}, {24, 103}, {25, 212}, {26, 68}, {28, 16}, {29, 238}, {30, 153}, {33, 197}, {34, 145}, {36, 1}, {43, 145}, {45, 1}, {47, 128}, {49, 0}, {51, 0}, {56, 0}, {57, 47}, {58, 0}, {59, 0}}
 	for _, pair := range rf {
 		if err := tuner.write(uint16(pair[0]), uint32(pair[1]), 1); err != nil {
@@ -97,9 +92,7 @@ func (tuner *Tuner) Initialize() error {
 	if err := tuner.write(0x36, uint32(value&0x7f), 1); err != nil {
 		return err
 	}
-	// The two thirty-two-bit writes. The registers are 0x0164 and 0x01c0, not
-	// 0x28 and 0x800 as a misreading of where the pairs begin suggests, and the
-	// second value really is as arbitrary as it looks.
+	// Apply the two 32-bit RF defaults.
 	for _, item := range []struct {
 		register uint16
 		value    uint32

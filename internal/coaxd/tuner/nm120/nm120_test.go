@@ -12,6 +12,17 @@ import (
 // addresses it.
 const testDemod = 0x22
 
+func TestInitializeOnlyAddressesTheRFTuner(t *testing.T) {
+	bus := &fakeBus{identity: 0x00013100}
+	if err := New(bus, testDemod).Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	writes := bus.tunnelled()
+	if len(writes) == 0 || writes[len(writes)-1] != [2]uint16{loopThroughRegister, loopThroughMaximum} {
+		t.Fatal("RF initialization did not complete")
+	}
+}
+
 // fakeBus records what the driver writes and answers the identity register.
 type fakeBus struct {
 	// identity is what the chip answers when its identity register is read.
@@ -26,11 +37,6 @@ func (bus *fakeBus) Write(address byte, data []byte) error {
 		return errors.New("a transfer went somewhere other than the demodulator")
 	}
 	if len(data) < 4 || data[0] != 0xfe || data[1] != 0xce {
-		if len(data) == 2 {
-			// A demodulator register, written directly rather than tunnelled.
-			bus.writes = append(bus.writes, append([]byte(nil), data...))
-			return nil
-		}
 		return errors.New("a tunnelled transfer was malformed")
 	}
 	bus.selected = uint16(data[2])<<8 | uint16(data[3])
