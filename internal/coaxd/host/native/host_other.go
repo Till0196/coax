@@ -14,7 +14,7 @@ import (
 const HostCommand = "bda-host"
 
 // ServeHost is the BDA host, which only Windows has.
-func ServeHost(io.Reader, io.WriteCloser, []string) error {
+func ServeHost(io.ReadCloser, io.WriteCloser, []string) error {
 	return errors.New("the BDA host runs on Windows only")
 }
 

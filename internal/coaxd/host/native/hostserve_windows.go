@@ -17,6 +17,7 @@ import (
 	"syscall"
 
 	"github.com/Till0196/coax/internal/coaxd/host/pool"
+	"github.com/Till0196/coax/internal/coaxd/host/session"
 	"github.com/Till0196/coax/internal/coaxd/host/userlock"
 	"github.com/Till0196/coax/internal/coaxd/pcie/tbs"
 	"github.com/Till0196/coax/internal/coaxd/receiver"
@@ -26,7 +27,7 @@ import (
 // and output, until that input closes. Then every tuner still open is closed,
 // which stops its graph before its handles go. arguments name the daemon's
 // socket (see SetSocket).
-func ServeHost(input io.Reader, output io.WriteCloser, arguments []string) error {
+func ServeHost(input io.ReadCloser, output io.WriteCloser, arguments []string) error {
 	state := newHostState()
 	if len(arguments) > 0 {
 		if err := serveHostPipe(context.Background(), arguments[0], state); err != nil {
@@ -39,6 +40,16 @@ func ServeHost(input io.Reader, output io.WriteCloser, arguments []string) error
 		}
 	}
 	served := &Host{devices: map[int]*onThread{}, streams: map[int]receiver.Stream{}, state: state}
+	shutdown := func() {
+		// End the RPC read first. ServeConn waits for in-flight calls before
+		// returning, so their cleanup cannot race the final graph shutdown.
+		_ = input.Close()
+	}
+	finishSession, err := session.Watch(shutdown)
+	if err != nil {
+		return err
+	}
+	defer finishSession()
 	server := rpc.NewServer()
 	if err := server.RegisterName("Host", served); err != nil {
 		return err
@@ -48,12 +59,15 @@ func ServeHost(input io.Reader, output io.WriteCloser, arguments []string) error
 	// the graphs running: the daemon's input closing is not the only way out.
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	finished := make(chan struct{})
+	defer close(finished)
 	go func() {
-		<-signals
-		state.set("closing")
-		served.closeAll()
-		state.set("closed")
-		os.Exit(0)
+		select {
+		case <-signals:
+			shutdown()
+		case <-finished:
+		}
 	}()
 	server.ServeConn(pipes{Reader: input, WriteCloser: output})
 	state.set("closing")

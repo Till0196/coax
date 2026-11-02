@@ -25,6 +25,7 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/host/native"
 	"github.com/Till0196/coax/internal/coaxd/host/pool"
 	"github.com/Till0196/coax/internal/coaxd/host/server"
+	"github.com/Till0196/coax/internal/coaxd/host/session"
 	"github.com/Till0196/coax/internal/coaxd/host/tray"
 	"github.com/Till0196/coax/internal/coaxd/usb"
 	"github.com/Till0196/coax/internal/idle"
@@ -100,6 +101,12 @@ func Run(ctx context.Context, options Options) error {
 	// it by cancelling this. One way out, so one teardown to get right.
 	ctx, asked := context.WithCancel(ctx)
 	defer asked()
+	finishSession, err := session.Watch(asked)
+	if err != nil {
+		return err
+	}
+	// Registered before resource cleanup, so Windows is answered last.
+	defer finishSession()
 
 	native.SetRoot(options.DVBRoot)
 	native.SetChardevRoot(options.ChardevRoot)
