@@ -5,9 +5,9 @@
 
 // Package tc90522 drives the Toshiba TC90522 ISDB-T/ISDB-S demodulator.
 //
-// The chip carries two independent demodulator cores, each on its own I2C
-// address, so one Demod is one core. Each repeats I2C to the tuner behind it,
-// which TunerBus exposes as an ordinary bus.
+// The chip carries two terrestrial and two satellite demodulator cores, each
+// on its own I2C address, so one Demod is one core. Each repeats I2C to the
+// tuner behind it, which TunerBus exposes as an ordinary bus.
 package tc90522
 
 import (
@@ -18,9 +18,8 @@ import (
 	"github.com/Till0196/coax/pkg/i2c"
 )
 
-// InitTerrestrial is the register sequence a terrestrial core needs at power-up
-// on the boards this chip appears on; boards needing extra pairs append to a
-// copy.
+// InitTerrestrial is a preset shared by several USB boards. Each board selects
+// and adjusts it as part of its own initialization.
 var InitTerrestrial = []byte{
 	0xb0, 0xa0, 0xb2, 0x3d, 0xb3, 0x25, 0xb4, 0x8b,
 	0xb5, 0x4b, 0xb6, 0x3f, 0xb7, 0xff, 0xb8, 0xc0,

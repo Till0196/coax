@@ -372,8 +372,7 @@ func newFrontEnds(control boardControl, wired wiring) (frontEnds, error) {
 	satelliteBus := control.I2C(wired.demodSatellite)
 	ends.demodT = tc90522.New(terrestrialBus, wired.demodTerrestrial, false)
 	ends.demodS = tc90522.New(satelliteBus, wired.demodSatellite, false)
-	// Initialize the demodulator before the tuner uses its I2C repeater.
-	// Both generations use the common TC90522 terrestrial setup.
+	// Apply the terrestrial defaults before the tuner uses its I2C repeater.
 	defaults := slices.Clone(tc90522.InitTerrestrial)
 	for at := 0; at < len(defaults); at += 2 {
 		if defaults[at] == 0xb8 {
