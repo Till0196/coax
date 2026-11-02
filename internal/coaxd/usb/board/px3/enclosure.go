@@ -5,7 +5,6 @@ package px3
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -140,6 +139,25 @@ func (ends *frontEnds) configureDemods(control boardControl, setups []demodSetup
 		}
 	}
 	return nil
+}
+
+func (ends *frontEnds) setAGC(index int, on bool) error {
+	demod := ends.demodT
+	if index == satellite {
+		demod = ends.demodS
+	}
+	setup := ends.wired.tune[index]
+	pairs := setup.holdAGC
+	if on {
+		pairs = setup.resumeAGC
+	}
+	if pairs != nil {
+		return demod.WritePairs(pairs)
+	}
+	if index == terrestrial {
+		return demod.SetAGCT(on)
+	}
+	return demod.SetAGCS(on)
 }
 
 // openEnclosure initializes a whole enclosure once, publishing it only after
@@ -372,16 +390,6 @@ func newFrontEnds(control boardControl, wired wiring) (frontEnds, error) {
 	satelliteBus := control.I2C(wired.demodSatellite)
 	ends.demodT = tc90522.New(terrestrialBus, wired.demodTerrestrial, false)
 	ends.demodS = tc90522.New(satelliteBus, wired.demodSatellite, false)
-	// Apply the terrestrial defaults before the tuner uses its I2C repeater.
-	defaults := slices.Clone(tc90522.InitTerrestrial)
-	for at := 0; at < len(defaults); at += 2 {
-		if defaults[at] == 0xb8 {
-			defaults[at+1] = wired.terrestrialB8
-		}
-	}
-	if err := ends.demodT.WritePairs(defaults); err != nil {
-		return frontEnds{}, fmt.Errorf("initialize terrestrial TC90522: %w", err)
-	}
 	if err := ends.configureDemods(control, wired.beforeRF); err != nil {
 		return frontEnds{}, err
 	}

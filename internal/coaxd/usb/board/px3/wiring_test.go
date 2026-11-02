@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/Till0196/coax/internal/coaxd/demod/tc90522"
@@ -16,6 +15,53 @@ import (
 )
 
 var errFrontendTransfer = errors.New("injected transfer failure")
+
+type terrestrialTuneFunc func(uint32) error
+
+func (tune terrestrialTuneFunc) Tune(frequency uint32) error { return tune(frequency) }
+
+func TestFC0012AcquisitionSequence(t *testing.T) {
+	for _, product := range []uint16{1, 3, 4, 5} {
+		for _, fail := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%d/fail=%t", product, fail), func(t *testing.T) {
+				bus := &frontendTrace{}
+				wired := wiringFor(product)
+				ends := frontEnds{
+					wired:  wired,
+					demodT: tc90522.New(bus, wired.demodTerrestrial, false),
+					tunerT: terrestrialTuneFunc(func(uint32) error {
+						_ = bus.Write(0x30, []byte{0xfe, 0xc6})
+						if fail {
+							return errFrontendTransfer
+						}
+						return nil
+					}),
+				}
+				front := frontend{hardware: &hardware{frontEnds: ends, controller: &controller{}}}
+				err := front.tuneTerrestrial(557143000)
+				if fail && !errors.Is(err, errFrontendTransfer) || !fail && err != nil {
+					t.Fatalf("tune result: %v", err)
+				}
+				want := [][]byte{{0x30, 0x25, 0}, {0x30, 0x23, 0x4d}, {0x30, 0xfe, 0xc6}}
+				if !fail {
+					value := byte(0x34)
+					if product == 1 {
+						value = 0x14
+					}
+					want = append(want, []byte{0x30, 0x0f, value}, []byte{0x30, 1, 0x40}, []byte{0x30, 0x23, 0x4c})
+				}
+				if len(bus.writes) != len(want) {
+					t.Fatalf("acquisition writes = % x; want % x", bus.writes, want)
+				}
+				for at := range want {
+					if !bytes.Equal(bus.writes[at], want[at]) {
+						t.Fatalf("acquisition writes = % x; want % x", bus.writes, want)
+					}
+				}
+			})
+		}
+	}
+}
 
 // Record the real FC0012/NM120 initialization through newFrontEnds, including
 // the V2's two demodulator addresses. RF reads return a supported NM131 ID.
@@ -52,10 +98,10 @@ func (bus *frontendTrace) WriteRead(_ byte, write []byte, length int) ([]byte, e
 }
 
 func TestDemodulatorFailureStopsBeforeRFInitialization(t *testing.T) {
-	for _, wired := range []wiring{fc0012Wiring, v2WiringAt(0), v2WiringAt(1)} {
-		registers := []byte{0xb8}
-		if len(wired.beforeRF) != 0 {
-			registers = append(registers, 0x03, 0x75)
+	for _, wired := range []wiring{fc0012WiringFor(0x0005), v2WiringAt(0), v2WiringAt(1)} {
+		registers := []byte{0xb8, 0x75}
+		if wired.demodTerrestrial != 0x30 {
+			registers = append(registers, 0x03)
 		}
 		for _, register := range registers {
 			t.Run(fmt.Sprintf("%02x/%02x", wired.demodTerrestrial, register), func(t *testing.T) {
@@ -75,31 +121,32 @@ func TestDemodulatorFailureStopsBeforeRFInitialization(t *testing.T) {
 
 func TestDemodulatorPreparationPrecedesRFInitialization(t *testing.T) {
 	common := []byte{0xb0, 0xa0, 0xb2, 0x3d, 0xb3, 0x25, 0xb4, 0x8b, 0xb5, 0x4b, 0xb6, 0x3f, 0xb7, 0xff, 0xb8, 0xc0}
-	v2Setup := []byte{3, 0, 0x1d, 0, 0x1f, 0, 0x0e, 0x77, 0x0f, 0x13, 0x75, 2}
+	fcSetup := []byte{0x47, 0, 0x75, 2, 0xb0, 0xa0, 0xb2, 0x3d, 0xb3, 0x25, 0xb4, 0x8b, 0xb5, 0x4b, 0xb6, 0x3f, 0xb7, 0xff, 0xb8, 0xff, 0x22, 0x8f, 0x5f, 0x80, 0xef, 1}
+	w3Setup := append([]byte{4, 0, 0x11, 0x1a, 0x12, 4, 0x13, 0x33, 0x14, 0x20, 0x31, 0, 0x32, 0, 0x38, 0, 0x39, 0xaa}, fcSetup...)
+	v2Setup := append(bytes.Clone(common), 3, 0, 0x1d, 0, 0x1f, 0, 0x0e, 0x77, 0x0f, 0x13, 0x75, 2)
 	for _, one := range []struct {
 		name    string
 		wired   wiring
 		setup   []byte
 		firstRF []byte
-		b8      byte
 		finish  []byte
 		last    []byte
 	}{
 		{"S3U", wiringFor(0x0001),
-			nil,
-			[]byte{0xfe, 0xc6, 1, 5}, 0xff, nil, []byte{0x32, 0x08, 0x77}},
+			fcSetup,
+			[]byte{0xfe, 0xc6, 1, 5}, nil, []byte{0x30, 0xfe, 0xc6, 0x15, 4}},
 		{"S3U2", wiringFor(0x0003),
-			nil,
-			[]byte{0xfe, 0xc6, 1, 5}, 0xff, []byte{0x0f, 0x34}, []byte{0x30, 0x0f, 0x34}},
+			fcSetup,
+			[]byte{0xfe, 0xc6, 1, 5}, []byte{0x0f, 0x34}, []byte{0x30, 0x0f, 0x34}},
 		{"W3U3", wiringFor(0x0005),
-			nil,
-			[]byte{0xfe, 0xc6, 1, 5}, 0xff, []byte{0x0f, 0x34}, []byte{0x30, 0x0f, 0x34}},
+			w3Setup,
+			[]byte{0xfe, 0xc6, 1, 5}, []byte{0x0f, 0x34}, []byte{0x30, 0x0f, 0x34}},
 		{"V2/0", v2WiringAt(0),
 			v2Setup,
-			[]byte{0xfe, 0xce, 0, 6, 0x48}, 0xc0, []byte{0x0e, 0x77, 0x0f, 0x13}, []byte{0x22, 0x04, 0x02}},
+			[]byte{0xfe, 0xce, 0, 6, 0x48}, []byte{0x0e, 0x77, 0x0f, 0x13}, []byte{0x22, 0x04, 0x02}},
 		{"V2/1", v2WiringAt(1),
 			v2Setup,
-			[]byte{0xfe, 0xce, 0, 6, 0x48}, 0xc0, []byte{0x0e, 0x77, 0x0f, 0x13}, []byte{0x26, 0x04, 0x02}},
+			[]byte{0xfe, 0xce, 0, 6, 0x48}, []byte{0x0e, 0x77, 0x0f, 0x13}, []byte{0x26, 0x04, 0x02}},
 	} {
 		t.Run(one.name, func(t *testing.T) {
 			bus := &frontendTrace{}
@@ -108,20 +155,25 @@ func TestDemodulatorPreparationPrecedesRFInitialization(t *testing.T) {
 			if _, err := newFrontEnds(bus, one.wired); err != nil {
 				t.Fatal(err)
 			}
-			var want [][]byte
-			defaults := bytes.Clone(common)
-			defaults[len(defaults)-1] = one.b8
-			for _, pairs := range [][]byte{defaults, one.setup} {
-				for at := 0; at < len(pairs); at += 2 {
-					want = append(want, []byte{one.wired.demodTerrestrial, pairs[at], pairs[at+1]})
+			var initial []byte
+			firstRF := -1
+			for at, write := range bus.writes {
+				if write[1] == 0xfe {
+					firstRF = at
+					break
+				}
+				if write[0] == one.wired.demodTerrestrial {
+					initial = append(initial, write[1:]...)
 				}
 			}
-			want = append(want, append([]byte{one.wired.demodTerrestrial}, one.firstRF...))
-			if len(bus.writes) < len(want) || !reflect.DeepEqual(bus.writes[:len(want)], want) {
-				t.Fatalf("initial writes = % x; want prefix % x", bus.writes, want)
+			if !bytes.Equal(initial, one.setup) {
+				t.Fatalf("terrestrial preparation = % x; want % x", initial, one.setup)
+			}
+			if firstRF < 0 || !bytes.Equal(bus.writes[firstRF][1:], one.firstRF) {
+				t.Fatalf("first RF transfer missing or incorrect: % x", bus.writes)
 			}
 			var finish []byte
-			for _, write := range bus.writes[len(want):] {
+			for _, write := range bus.writes[firstRF+1:] {
 				if len(write) == 3 && write[0] == one.wired.demodTerrestrial && write[1] >= 0xb0 && write[1] <= 0xb8 {
 					t.Fatalf("duplicate demodulator initialization: % x", write)
 				}
@@ -156,7 +208,7 @@ func TestWiringIsPerGeneration(t *testing.T) {
 		got := wiringFor(product)
 		want := v2Wiring
 		if fc0012Board {
-			want = fc0012Wiring
+			want = fc0012WiringFor(0x0005)
 		}
 		if got.demodTerrestrial != want.demodTerrestrial || got.demodSatellite != want.demodSatellite {
 			t.Errorf("product %#04x is wired to demodulators %#02x/%#02x, want %#02x/%#02x",
@@ -173,10 +225,10 @@ func TestWiringIsPerGeneration(t *testing.T) {
 // TestTheTwoGenerationsAgreeOnNothing is the other half of the same guard: if
 // the two entries were made equal, the test above would pass saying nothing.
 func TestTheTwoGenerationsAgreeOnNothing(t *testing.T) {
-	if fc0012Wiring.demodTerrestrial == v2Wiring.demodTerrestrial {
+	if fc0012WiringFor(0x0005).demodTerrestrial == v2Wiring.demodTerrestrial {
 		t.Error("the two generations should not share a terrestrial demodulator address")
 	}
-	if fc0012Wiring.demodSatellite == v2Wiring.demodSatellite {
+	if fc0012WiringFor(0x0005).demodSatellite == v2Wiring.demodSatellite {
 		t.Error("the two generations should not share a satellite demodulator address")
 	}
 	// Both generations put the terrestrial demodulator at the lower address. The
@@ -186,11 +238,11 @@ func TestTheTwoGenerationsAgreeOnNothing(t *testing.T) {
 		t.Errorf("the V2's demodulators are at %#02x/%#02x, want 0x20/0x22",
 			v2Wiring.demodTerrestrial, v2Wiring.demodSatellite)
 	}
-	if fc0012Wiring.demodSatellite <= fc0012Wiring.demodTerrestrial {
+	if fc0012WiringFor(0x0005).demodSatellite <= fc0012WiringFor(0x0005).demodTerrestrial {
 		t.Error("the FC0012 boards put their satellite demodulator at the higher address")
 	}
-	if fc0012Wiring.terrestrialName == v2Wiring.terrestrialName ||
-		fc0012Wiring.satelliteName == v2Wiring.satelliteName {
+	if fc0012WiringFor(0x0005).terrestrialName == v2Wiring.terrestrialName ||
+		fc0012WiringFor(0x0005).satelliteName == v2Wiring.satelliteName {
 		t.Error("the two generations should not name the same tuners")
 	}
 }
@@ -218,8 +270,8 @@ func TestListingNamesTheTunerThatIsFitted(t *testing.T) {
 // FC0012 boards feed the aerial lead when zero is written where the V2 feeds it
 // when the bit is. One polarity for both starves one of them.
 func TestTheLNBSupplyRunsOppositeWaysOnTheTwoGenerations(t *testing.T) {
-	if fc0012Wiring.lnbSupplyOn != 0x00 {
-		t.Errorf("the FC0012 boards feed the lead by writing %#02x, want 0x00", fc0012Wiring.lnbSupplyOn)
+	if fc0012WiringFor(0x0005).lnbSupplyOn != 0x00 {
+		t.Errorf("the FC0012 boards feed the lead by writing %#02x, want 0x00", fc0012WiringFor(0x0005).lnbSupplyOn)
 	}
 	if v2Wiring.lnbSupplyOn != lnbSupplyMask {
 		t.Errorf("the V2 feeds the lead by writing %#02x, want %#02x", v2Wiring.lnbSupplyOn, lnbSupplyMask)

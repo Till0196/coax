@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Till0196/coax/internal/coaxd/demod/tc90522"
 	"github.com/Till0196/coax/internal/coaxd/device"
 	"github.com/Till0196/coax/internal/coaxd/trace"
 	"github.com/Till0196/coax/internal/coaxd/tuner/fc0012"
@@ -98,12 +99,11 @@ type wiring struct {
 	newTerrestrial func(bus i2c.Bus, demod byte) (terrestrialTuner, error)
 	// newSatellite builds the ISDB-S tuner on the demodulator's tuner bus: a
 	// TDA20142 on the V2, a table-driven part on the FC0012 boards (satellite.go).
-	newSatellite  func(bus i2c.Bus) (satelliteTuner, error)
-	terrestrialB8 byte
+	newSatellite func(bus i2c.Bus) (satelliteTuner, error)
 	// beforeRF and afterRF configure the demodulators around RF initialization.
 	beforeRF, afterRF []demodSetup
-	// afterTune configures each source around AGC restart after a successful tune.
-	afterTune [2]demodTune
+	// tune configures AGC and demodulator settings around each source's RF tune.
+	tune [2]demodTune
 	// lnbSupplyOn is what to put on GPIO bit 0x20 to feed the aerial lead. The two
 	// generations are opposite: zero on the FC0012 boards, the bit itself on the V2.
 	lnbSupplyOn byte
@@ -120,6 +120,8 @@ type demodSetup struct {
 }
 
 type demodTune struct {
+	// Nil uses the shared demodulator driver's AGC sequence.
+	holdAGC, resumeAGC  []byte
 	beforeAGC, afterAGC []demodSetup
 }
 
@@ -193,29 +195,71 @@ func newTDA20142(bus i2c.Bus) (satelliteTuner, error) {
 	return tda20142.New(bus)
 }
 
-// fc0012Wiring is the PX-S3U, S3U2, W3U2 and W3U3.
-var fc0012Wiring = wiring{
-	demodTerrestrial: 0x30,
-	demodSatellite:   0x32,
-	newTerrestrial:   newFC0012,
-	newSatellite:     newTableSatellite,
-	terrestrialB8:    0xff,
-	afterRF: []demodSetup{
-		{index: satellite, pairs: []byte{0x15, 0, 0x1d, 0, 0x04, 0x02, 0x07, 0x31, 0x08, 0x77}},
-		{index: terrestrial, pairs: []byte{0x0f, 0x34}},
-	},
-	afterTune: [2]demodTune{
-		satellite: {
-			beforeAGC: []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x34}}},
+// fc0012WiringFor combines the shared terrestrial preset with the board's
+// defaults. Every call owns its register lists.
+func fc0012WiringFor(product uint16) wiring {
+	var terrestrialDefaults []byte
+	if product != 0x0001 && product != 0x0003 {
+		terrestrialDefaults = append(terrestrialDefaults,
+			0x04, 0x00, 0x11, 0x1a, 0x12, 0x04, 0x13, 0x33, 0x14, 0x20,
+			0x31, 0x00, 0x32, 0x00, 0x38, 0x00, 0x39, 0xaa)
+	}
+	terrestrialDefaults = append(terrestrialDefaults, 0x47, 0x00, 0x75, 0x02)
+	for at := 0; at < len(tc90522.InitTerrestrial); at += 2 {
+		register, value := tc90522.InitTerrestrial[at], tc90522.InitTerrestrial[at+1]
+		if register == 0xb8 {
+			value = 0xff
+		}
+		terrestrialDefaults = append(terrestrialDefaults, register, value)
+	}
+	terrestrialDefaults = append(terrestrialDefaults, 0x22, 0x8f, 0x5f, 0x80, 0xef, 0x01)
+	satelliteDefaults := demodSetup{index: satellite, pairs: []byte{
+		0x01, 0x90, 0x03, 0x00, 0x04, 0x02, 0x06, 0x00, 0x07, 0x41, 0x08, 0x00,
+		0x09, 0x00, 0x0a, 0xff, 0x0c, 0x59, 0x0d, 0xf2, 0x0e, 0xf0, 0x0f, 0x50,
+		0x10, 0xb2, 0x11, 0x00, 0x12, 0x30, 0x13, 0x80, 0x14, 0x00, 0x15, 0x00,
+		0x17, 0x00, 0x1a, 0x00, 0x1b, 0x00, 0x1c, 0x00, 0x1d, 0x00, 0x1e, 0x00,
+		0x1f, 0x00, 0x20, 0x00, 0x38, 0x40, 0x39, 0x10, 0x3b, 0x90, 0x51, 0xb0,
+		0x52, 0x89, 0x53, 0xb3, 0x5a, 0x2d, 0x5b, 0xd3, 0x85, 0x69, 0x87, 0x04,
+		0x8d, 0x00, 0x8e, 0x00, 0xa3, 0x11, 0xa4, 0x00, 0xa5, 0x40, 0xa6, 0x04,
+	}}
+	wired := wiring{
+		demodTerrestrial: 0x30,
+		demodSatellite:   0x32,
+		newTerrestrial:   newFC0012,
+		newSatellite:     newTableSatellite,
+		beforeRF: []demodSetup{
+			{index: terrestrial, pairs: terrestrialDefaults},
 		},
-		terrestrial: {
-			beforeAGC: []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x34}}},
-			afterAGC:  []demodSetup{{index: terrestrial, pairs: []byte{0x71, 0x21, 0x72, 0x25, 0x75, 0x08}}},
+		afterRF: []demodSetup{
+			satelliteDefaults,
+			{index: terrestrial, pairs: []byte{0x0f, 0x34}},
 		},
-	},
-	lnbSupplyOn:     0x00,
-	terrestrialName: "FC0012",
-	satelliteName:   "QM1D1B0004",
+		tune: [2]demodTune{
+			satellite: {
+				holdAGC:   []byte{0x25, 0x00, 0x23, 0x4d},
+				resumeAGC: []byte{0x03, 0x01, 0x23, 0x4c},
+				beforeAGC: []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x34}}},
+			},
+			terrestrial: {
+				holdAGC:   []byte{0x25, 0x00, 0x23, 0x4d},
+				resumeAGC: []byte{0x01, 0x40, 0x23, 0x4c},
+				beforeAGC: []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x34}}},
+			},
+		},
+		lnbSupplyOn:     0x00,
+		terrestrialName: "FC0012",
+		satelliteName:   "QM1D1B0004",
+	}
+	if product == 0x0001 {
+		wired.beforeRF = []demodSetup{
+			satelliteDefaults,
+			{index: terrestrial, pairs: terrestrialDefaults},
+		}
+		wired.afterRF = nil
+		wired.tune[terrestrial].beforeAGC = []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x14}}}
+		wired.tune[satellite].beforeAGC = []demodSetup{{index: terrestrial, address: 0x34, pairs: []byte{0x0f, 0x3c}}}
+	}
+	return wired
 }
 
 // v2Wiring is the PX-W3U3 V2's first pair. Its demodulators sit at
@@ -227,15 +271,15 @@ var v2Wiring = wiring{
 	demodSatellite:   0x22,
 	newTerrestrial:   newNM120,
 	newSatellite:     newTDA20142,
-	terrestrialB8:    0xc0,
 	beforeRF: []demodSetup{
+		{index: terrestrial, pairs: tc90522.InitTerrestrial},
 		{index: terrestrial, pairs: []byte{0x03, 0, 0x1d, 0, 0x1f, 0, 0x0e, 0x77, 0x0f, 0x13, 0x75, 0x02}},
 	},
 	afterRF: []demodSetup{
 		{index: terrestrial, pairs: []byte{0x0e, 0x77, 0x0f, 0x13}},
 		{index: satellite, pairs: []byte{0x13, 0, 0x15, 0, 0x17, 0, 0x1c, 0, 0x1d, 0, 0x1f, 0, 0x07, 0x31, 0x08, 0x77, 0x04, 0x02}},
 	},
-	afterTune: [2]demodTune{
+	tune: [2]demodTune{
 		terrestrial: {
 			afterAGC: []demodSetup{{index: terrestrial, pairs: []byte{0x71, 0x01, 0x72, 0x24, 0x75, 0x02}}},
 		},
@@ -263,13 +307,7 @@ func wiringFor(product uint16) wiring {
 	if product == v2Product {
 		return v2Wiring
 	}
-	wired := fc0012Wiring
-	if product == 0x0001 {
-		wired.afterRF = wired.afterRF[:1]
-		wired.afterTune[terrestrial].beforeAGC = []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x14}}}
-		wired.afterTune[satellite].beforeAGC = []demodSetup{{index: terrestrial, address: 0x34, pairs: []byte{0x0f, 0x3c}}}
-	}
-	return wired
+	return fc0012WiringFor(product)
 }
 
 var products = map[uint16]string{
@@ -540,18 +578,17 @@ func (front *frontend) tuneTerrestrial(frequency uint64) error {
 	if frequency < 10_000_000 {
 		frequency *= 1000
 	}
-	demod := front.hardware.demodT
-	if err := demod.SetAGCT(false); err != nil {
+	if err := front.hardware.setAGC(terrestrial, false); err != nil {
 		return err
 	}
 	if err := front.hardware.tunerT.Tune(uint32(frequency)); err != nil {
 		return fmt.Errorf("tune the terrestrial tuner: %w", err)
 	}
-	setup := front.hardware.wired.afterTune[terrestrial]
+	setup := front.hardware.wired.tune[terrestrial]
 	if err := front.hardware.configureDemods(front.hardware.control, setup.beforeAGC); err != nil {
 		return err
 	}
-	if err := demod.SetAGCT(true); err != nil {
+	if err := front.hardware.setAGC(terrestrial, true); err != nil {
 		return err
 	}
 	return front.hardware.configureDemods(front.hardware.control, setup.afterAGC)
@@ -580,17 +617,17 @@ func (front *frontend) tuneSatellite(frequency uint64, properties map[string]str
 		return err
 	}
 	demod := front.hardware.demodS
-	if err := demod.SetAGCS(false); err != nil {
+	if err := front.hardware.setAGC(satellite, false); err != nil {
 		return err
 	}
 	if err := front.hardware.tunerS.Tune(frequency); err != nil {
 		return fmt.Errorf("tune the satellite tuner: %w", err)
 	}
-	setup := front.hardware.wired.afterTune[satellite]
+	setup := front.hardware.wired.tune[satellite]
 	if err := front.hardware.configureDemods(front.hardware.control, setup.beforeAGC); err != nil {
 		return err
 	}
-	if err := demod.SetAGCS(true); err != nil {
+	if err := front.hardware.setAGC(satellite, true); err != nil {
 		return err
 	}
 	if err := front.hardware.configureDemods(front.hardware.control, setup.afterAGC); err != nil {

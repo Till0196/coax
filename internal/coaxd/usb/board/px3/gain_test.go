@@ -121,7 +121,7 @@ func TestTheV2OffersASwitchAndTheOlderBoardsALadder(t *testing.T) {
 			t.Errorf("the V2's tuner %d offers %+v, want a two-step switch with no figures", index, ladder)
 		}
 	}
-	fc0012Board := &frontend{hardware: &hardware{frontEnds: frontEnds{wired: fc0012Wiring, tunerT: &laddered{}}}, index: terrestrial}
+	fc0012Board := &frontend{hardware: &hardware{frontEnds: frontEnds{wired: fc0012WiringFor(0x0005), tunerT: &laddered{}}}, index: terrestrial}
 	if got := fc0012Board.GainLadder("ISDBT"); len(got.Decibels) == 0 {
 		t.Error("the FC0012 boards' terrestrial tuner lost its ladder")
 	}
