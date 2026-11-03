@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"syscall"
 	"unsafe"
 )
 
@@ -143,6 +144,25 @@ func (f *Frontend) Info() (Info, error) {
 		}
 	}
 	return info, nil
+}
+
+// Driver is the name of the kernel driver behind a frontend node, as sysfs
+// has it: "earth_pt3", "ddbridge". The frontend's own name is the
+// demodulator's and does not say which card it sits on. Empty where sysfs
+// does not say.
+func Driver(path string) string {
+	var stat syscall.Stat_t
+	if err := syscall.Stat(path, &stat); err != nil {
+		return ""
+	}
+	device := uint64(stat.Rdev)
+	major := (device>>8)&0xfff | (device>>32)&^uint64(0xfff)
+	minor := device&0xff | (device>>12)&^uint64(0xff)
+	target, err := os.Readlink(fmt.Sprintf("/sys/dev/char/%d:%d/device/driver", major, minor))
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(target)
 }
 
 func cString(field []byte) string {

@@ -95,7 +95,7 @@ Annex Bだけは別の方式なので、同じには扱いません。
 | `FREQUENCY` | `DTV_FREQUENCY` |
 | `BANDWIDTH_HZ` | `DTV_BANDWIDTH_HZ` |
 | `SYMBOL_RATE` | `DTV_SYMBOL_RATE` |
-| `STREAM_ID` | `DTV_STREAM_ID` |
+| `STREAM_ID` | `DTV_STREAM_ID`（ISDB-Sはドライバーに合わせて直す。[下記](#isdb-sのstream_id)）|
 | `MODULATION` | `DTV_MODULATION` |
 | `INVERSION` | `DTV_INVERSION` |
 | `INNER_FEC` | `DTV_INNER_FEC` |
@@ -134,6 +134,27 @@ Annex Bだけは別の方式なので、同じには扱いません。
 
 - **ISDB-Cは`SYS_DVBC_ANNEX_C`として送ります**：APIには`SYS_ISDBC`もありますが、カーネルのどのフロントエンドドライバーもこれに対応しておらず、DVBコアも「まだ対応ドライバーが無い」番号として扱っています。送っても、実際にISDB-Cを受信できるデバイスを含め、すべてのドライバーがエラーを返します。ISDB-CはITU-T J.83 Annex Cそのものなので、Annex Cとして選局するのが正しいやり方です。
 - **APIにISDB-S3の番号がありません**：そのため、このバックエンドでは`DELIVERY_SYSTEM = ISDBS3`が使えません。高度BS/CSのチャンネルは、`DELIVERY_SYSTEM = ISDBS`のまま`STREAM_ID`にTLVストリームIDを書いてください。ISDB-SかISDB-S3かは復調器が見分けるので、Stream IDを書くだけで足ります（[channel-files.md](../reference/channel-files.md#isdb-s3の書き方)）。
+
+### ISDB-SのSTREAM_ID
+
+定義ファイルの`STREAM_ID`は、12未満なら中継器の中の相対TS番号、12以上ならTSIDです（[channel-files.md](../reference/channel-files.md#stream_id)）。
+APIの`DTV_STREAM_ID`はTSIDを渡す項目ですが、相対TS番号の扱いはドライバーごとに違います。
+`coaxd`は、カーネルのドライバー名（sysfsの`device/driver`）とフロントエンドの名前を見て、渡す値を変えます。
+
+| ドライバー | 相対TS番号 | TSID |
+| --- | --- | --- |
+| `ddbridge`（dddvb。MAX M4、MAX M4 V2、M2）| そのまま渡します。8〜11はエラーにします | `0x10000`を足して渡します |
+| TC90522（`earth-pt3`、`earth-pt1`、PX-BCUD）、MN88443x | 0だけ渡せます。1以上はエラーにします | そのまま渡します |
+| それ以外 | そのまま渡します | そのまま渡します |
+
+dddvbは、16ビットに収まる値を相対TS番号として読み、下位3ビットだけを使います。
+TSIDをそのまま渡すと、下位3ビットが中継器の中の位置と違うTS（0x40f1、0x4092、0x4973など）で、別のTSが来るか、ロックしません。
+`0x10000`を足した値を定義ファイルに書いた場合は、そのまま渡します。
+
+TC90522とMN88443xのカーネルドライバーは、値をそのままTSIDとして復調器に書きます。
+相対TS番号を渡すと、どの番号でも中継器の先頭のTSが来ます。
+そのため、0以外の相対TS番号（`BS01_1`など）はエラーにします。
+TSID（`--ch 16401`など）で指定してください。
 
 ## 周波数の範囲チェック
 
@@ -294,6 +315,7 @@ dBでは指定できません。
 
 - **使える伝送方式、周波数の範囲、測定値は、すべてカーネルのドライバーに依存します**：ドライバーの申告が実際のハードウェアより狭くても、`coaxd`の側では回避できません（例は[`earth-pt3`がVHF/CATVを断る件](#earth-pt3が受け付ける周波数の範囲)で、これはカーネルへのパッチで直します）。
 - `ISDBS3`は使えません。`ISDBS`と`STREAM_ID`で書いてください。
+- TC90522とMN88443xのカーネルドライバーでは、ISDB-Sを0以外の相対TS番号で選べません。TSIDで書いてください（[上記](#isdb-sのstream_id)）。
 - LNB給電は13V／18V／OFFだけです。日本の124/128度CSに要る11V／15Vは出せません。
 - `GAIN`はdBで指定できません。
 - カードスロットを内蔵したチューナーでも、カードリーダーは使えません。カードへの経路がドライバーの中で閉じているためです（[card-reader.md](../reference/card-reader.md#搭載デバイス)）。

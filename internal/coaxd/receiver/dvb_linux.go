@@ -32,6 +32,10 @@ type linuxDVBDevice struct {
 	// settle is whether the front of the stream is held back until the
 	// demodulator settles; see settleFrontendName.
 	settle bool
+	// frontendName is what the frontend calls itself, and streams how its
+	// driver reads an ISDB-S stream; see isdbsStreamsFor.
+	frontendName string
+	streams      isdbsStreams
 }
 
 func Open(options Options) (Device, error) {
@@ -73,7 +77,9 @@ func Open(options Options) (Device, error) {
 	if info, infoErr := frontend.Info(); infoErr == nil {
 		device.frequencyMin, device.frequencyMax = info.FrequencyMin, info.FrequencyMax
 		device.settle = info.Name == settleFrontendName
+		device.frontendName = info.Name
 	}
+	device.streams = isdbsStreamsFor(dvb.Driver(frontendPath), device.frontendName)
 	if systems, enumErr := frontend.DeliverySystems(); enumErr == nil {
 		device.supported = make(map[uint32]bool, len(systems))
 		for _, system := range systems {
@@ -123,6 +129,10 @@ func (device *linuxDVBDevice) Supports(deliverySystem string) (bool, error) {
 }
 
 func (device *linuxDVBDevice) Tune(properties map[string]string) error {
+	properties, err := isdbsStreamProperties(device.streams, device.frontendName, properties)
+	if err != nil {
+		return err
+	}
 	tuneProperties, delivery, err := dvb.BuildTuneProperties(properties)
 	if err != nil {
 		return err

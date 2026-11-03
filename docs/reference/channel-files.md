@@ -411,7 +411,7 @@ LNA、RF、ミキサーの利得はどれも周波数帯ごとに決まったテ
 | [`pt3`／`pt1`](../boards/earthsoft-windows.md)（Windows）| ISDB-T、ISDB-S | `FREQUENCY`は周波数のまま指定。`STREAM_ID`はTSIDも12未満の相対スロットも可（省略時は相対スロット0）|
 | [`dd`](../boards/dd.md)（Windows PCIe）| ボードごと | 伝送方式に応じて。衛星は`SYMBOL_RATE` |
 | [`tbs`](../boards/tbs.md)（Windows PCIe）| ISDB-T、ISDB-S、ISDB-S3、DVB-T、DVB-T2、DVB-C、DVB-S、DVB-S2、J.83 Annex B | `FREQUENCY`。衛星は`SYMBOL_RATE`必須。デバイスにより対応方式は異なります |
-| [`dvb`](../boards/dvb.md)（Linux DVB）| Linux DVB APIで表現できるもの全般（ISDB-S3を除く）| 伝送方式に応じて |
+| [`dvb`](../boards/dvb.md)（Linux DVB）| Linux DVB APIで表現できるもの全般（ISDB-S3を除く）| 伝送方式に応じて。ISDB-Sの相対TS番号はドライバーによって使えません（[dvb.md](../boards/dvb.md#isdb-sのstream_id)）|
 | [`bda`](../boards/bda.md)（Windows）| Windows BDAが対応するもの | 伝送方式に応じて |
 
 `coax list --tuners`を使うと、チューナーごとに受信できる伝送方式が表示されます。
