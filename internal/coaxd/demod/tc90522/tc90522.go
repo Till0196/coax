@@ -41,6 +41,58 @@ func New(bus i2c.Bus, address byte, secondary bool) *Demod {
 	return &Demod{bus: bus, address: address, secondary: secondary}
 }
 
+// Tuner identifies the acquisition sequence used with an RF tuner.
+type Tuner uint8
+
+const (
+	TunerFC0012 Tuner = iota
+	TunerNM120
+	TunerQM1D1B0004
+	TunerTDA20142
+)
+
+// Tune holds gain control while setParams moves the RF tuner, applies any
+// board connections in finish, and restarts acquisition. The callbacks run
+// without the register lock so they can use the demodulator's tuner bus.
+func (demod *Demod) Tune(tuner Tuner, setParams, finish func() error) error {
+	var hold, resume []byte
+	switch tuner {
+	case TunerFC0012:
+		hold = []byte{0x25, 0x00, 0x23, 0x4d}
+		resume = []byte{0x01, 0x40, 0x23, 0x4c}
+	case TunerQM1D1B0004:
+		hold = []byte{0x25, 0x00, 0x23, 0x4d}
+		resume = []byte{0x03, 0x01, 0x23, 0x4c}
+	case TunerNM120:
+		hold = []byte{0x01, 0x50, 0x47, 0x30, 0x25, 0x00, 0x20, 0x00, 0x23, 0x4d}
+		resume = []byte{0x23, 0x4c, 0x01, 0x50, 0x71, 0x01, 0x72, 0x24, 0x75, 0x02}
+	case TunerTDA20142:
+	default:
+		return fmt.Errorf("TC90522 unsupported tuner %d", tuner)
+	}
+	var err error
+	if tuner == TunerTDA20142 {
+		err = demod.SetAGCS(false)
+	} else {
+		err = demod.WritePairs(hold)
+	}
+	if err != nil {
+		return err
+	}
+	if err := setParams(); err != nil {
+		return err
+	}
+	if finish != nil {
+		if err := finish(); err != nil {
+			return err
+		}
+	}
+	if tuner == TunerTDA20142 {
+		return demod.SetAGCS(true)
+	}
+	return demod.WritePairs(resume)
+}
+
 // ReadRegisters reads a run of registers.
 func (demod *Demod) ReadRegisters(register byte, length int) ([]byte, error) {
 	demod.mu.Lock()

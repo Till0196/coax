@@ -12,14 +12,18 @@ import (
 // addresses it.
 const testDemod = 0x22
 
-func TestInitializeOnlyAddressesTheRFTuner(t *testing.T) {
+func TestInitializationAndTuningOnlyAddressTheRFTuner(t *testing.T) {
 	bus := &fakeBus{identity: 0x00013100}
-	if err := New(bus, testDemod).Initialize(); err != nil {
+	tuner := New(bus, testDemod)
+	if err := tuner.Initialize(); err != nil {
 		t.Fatal(err)
 	}
 	writes := bus.tunnelled()
 	if len(writes) == 0 || writes[len(writes)-1] != [2]uint16{loopThroughRegister, loopThroughMaximum} {
 		t.Fatal("RF initialization did not complete")
+	}
+	if err := tuner.Tune(557143000); err != nil {
+		t.Fatal(err)
 	}
 }
 

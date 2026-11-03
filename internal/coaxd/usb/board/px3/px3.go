@@ -102,8 +102,10 @@ type wiring struct {
 	newSatellite func(bus i2c.Bus) (satelliteTuner, error)
 	// beforeRF and afterRF configure the demodulators around RF initialization.
 	beforeRF, afterRF []demodSetup
-	// tune configures AGC and demodulator settings around each source's RF tune.
-	tune [2]demodTune
+	// tuners select the demodulator's acquisition sequence. afterTune applies
+	// board connections after RF tuning and before acquisition restarts.
+	tuners    [2]tc90522.Tuner
+	afterTune [2][]demodSetup
 	// lnbSupplyOn is what to put on GPIO bit 0x20 to feed the aerial lead. The two
 	// generations are opposite: zero on the FC0012 boards, the bit itself on the V2.
 	lnbSupplyOn byte
@@ -116,13 +118,8 @@ type wiring struct {
 type demodSetup struct {
 	index   int
 	address byte // Zero uses the indexed demodulator's address.
+	tuner   byte // Zero addresses the demodulator; otherwise use its tuner bus.
 	pairs   []byte
-}
-
-type demodTune struct {
-	// Nil uses the shared demodulator driver's AGC sequence.
-	holdAGC, resumeAGC  []byte
-	beforeAGC, afterAGC []demodSetup
 }
 
 // amplifierLines is how a generation switches its board-level amplifiers: a
@@ -234,17 +231,10 @@ func fc0012WiringFor(product uint16) wiring {
 			satelliteDefaults,
 			{index: terrestrial, pairs: []byte{0x0f, 0x34}},
 		},
-		tune: [2]demodTune{
-			satellite: {
-				holdAGC:   []byte{0x25, 0x00, 0x23, 0x4d},
-				resumeAGC: []byte{0x03, 0x01, 0x23, 0x4c},
-				beforeAGC: []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x34}}},
-			},
-			terrestrial: {
-				holdAGC:   []byte{0x25, 0x00, 0x23, 0x4d},
-				resumeAGC: []byte{0x01, 0x40, 0x23, 0x4c},
-				beforeAGC: []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x34}}},
-			},
+		tuners: [2]tc90522.Tuner{satellite: tc90522.TunerQM1D1B0004, terrestrial: tc90522.TunerFC0012},
+		afterTune: [2][]demodSetup{
+			satellite:   {{index: terrestrial, pairs: []byte{0x0f, 0x34}}},
+			terrestrial: {{index: terrestrial, pairs: []byte{0x0f, 0x34}}},
 		},
 		lnbSupplyOn:     0x00,
 		terrestrialName: "FC0012",
@@ -256,8 +246,11 @@ func fc0012WiringFor(product uint16) wiring {
 			{index: terrestrial, pairs: terrestrialDefaults},
 		}
 		wired.afterRF = nil
-		wired.tune[terrestrial].beforeAGC = []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x14}}}
-		wired.tune[satellite].beforeAGC = []demodSetup{{index: terrestrial, address: 0x34, pairs: []byte{0x0f, 0x3c}}}
+		wired.afterTune[terrestrial] = []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x14}}}
+		wired.afterTune[satellite] = []demodSetup{{index: terrestrial, address: 0x34, pairs: []byte{0x0f, 0x3c}}}
+	} else if product == 0x0003 {
+		pulse := demodSetup{index: terrestrial, tuner: 0xc6, pairs: []byte{0x10, 0x00, 0x10, 0x10, 0x10, 0x00}}
+		wired.afterRF = []demodSetup{pulse, satelliteDefaults, pulse, {index: terrestrial, pairs: []byte{0x0f, 0x34}}}
 	}
 	return wired
 }
@@ -279,11 +272,7 @@ var v2Wiring = wiring{
 		{index: terrestrial, pairs: []byte{0x0e, 0x77, 0x0f, 0x13}},
 		{index: satellite, pairs: []byte{0x13, 0, 0x15, 0, 0x17, 0, 0x1c, 0, 0x1d, 0, 0x1f, 0, 0x07, 0x31, 0x08, 0x77, 0x04, 0x02}},
 	},
-	tune: [2]demodTune{
-		terrestrial: {
-			afterAGC: []demodSetup{{index: terrestrial, pairs: []byte{0x71, 0x01, 0x72, 0x24, 0x75, 0x02}}},
-		},
-	},
+	tuners:            [2]tc90522.Tuner{satellite: tc90522.TunerTDA20142, terrestrial: tc90522.TunerNM120},
 	lnbSupplyOn:       lnbSupplyMask,
 	externalAmplifier: &v2Amplifiers,
 	terrestrialName:   "NM120",
@@ -578,20 +567,14 @@ func (front *frontend) tuneTerrestrial(frequency uint64) error {
 	if frequency < 10_000_000 {
 		frequency *= 1000
 	}
-	if err := front.hardware.setAGC(terrestrial, false); err != nil {
-		return err
-	}
-	if err := front.hardware.tunerT.Tune(uint32(frequency)); err != nil {
-		return fmt.Errorf("tune the terrestrial tuner: %w", err)
-	}
-	setup := front.hardware.wired.tune[terrestrial]
-	if err := front.hardware.configureDemods(front.hardware.control, setup.beforeAGC); err != nil {
-		return err
-	}
-	if err := front.hardware.setAGC(terrestrial, true); err != nil {
-		return err
-	}
-	return front.hardware.configureDemods(front.hardware.control, setup.afterAGC)
+	return front.hardware.demodT.Tune(front.hardware.wired.tuners[terrestrial], func() error {
+		if err := front.hardware.tunerT.Tune(uint32(frequency)); err != nil {
+			return fmt.Errorf("tune the terrestrial tuner: %w", err)
+		}
+		return nil
+	}, func() error {
+		return front.hardware.configureDemods(front.hardware.control, front.hardware.wired.afterTune[terrestrial])
+	})
 }
 
 // tuneSatellite moves the satellite tuner and picks the relative stream out of
@@ -617,20 +600,14 @@ func (front *frontend) tuneSatellite(frequency uint64, properties map[string]str
 		return err
 	}
 	demod := front.hardware.demodS
-	if err := front.hardware.setAGC(satellite, false); err != nil {
-		return err
-	}
-	if err := front.hardware.tunerS.Tune(frequency); err != nil {
-		return fmt.Errorf("tune the satellite tuner: %w", err)
-	}
-	setup := front.hardware.wired.tune[satellite]
-	if err := front.hardware.configureDemods(front.hardware.control, setup.beforeAGC); err != nil {
-		return err
-	}
-	if err := front.hardware.setAGC(satellite, true); err != nil {
-		return err
-	}
-	if err := front.hardware.configureDemods(front.hardware.control, setup.afterAGC); err != nil {
+	if err := demod.Tune(front.hardware.wired.tuners[satellite], func() error {
+		if err := front.hardware.tunerS.Tune(frequency); err != nil {
+			return fmt.Errorf("tune the satellite tuner: %w", err)
+		}
+		return nil
+	}, func() error {
+		return front.hardware.configureDemods(front.hardware.control, front.hardware.wired.afterTune[satellite])
+	}); err != nil {
 		return err
 	}
 	return demod.SelectStreamS(streamID)

@@ -134,30 +134,24 @@ func (ends *frontEnds) configureDemods(control boardControl, setups []demodSetup
 		if setup.address != 0 {
 			demod = tc90522.New(control.I2C(setup.address), setup.address, false)
 		}
-		if err := demod.WritePairs(setup.pairs); err != nil {
+		var err error
+		if setup.tuner == 0 {
+			err = demod.WritePairs(setup.pairs)
+		} else if len(setup.pairs)%2 != 0 {
+			err = fmt.Errorf("tuner register pair list has an odd length %d", len(setup.pairs))
+		} else {
+			bus := demod.TunerBus()
+			for at := 0; at < len(setup.pairs); at += 2 {
+				if err = bus.Write(setup.tuner, setup.pairs[at:at+2]); err != nil {
+					break
+				}
+			}
+		}
+		if err != nil {
 			return fmt.Errorf("configure TC90522 for tuner %d: %w", setup.index, err)
 		}
 	}
 	return nil
-}
-
-func (ends *frontEnds) setAGC(index int, on bool) error {
-	demod := ends.demodT
-	if index == satellite {
-		demod = ends.demodS
-	}
-	setup := ends.wired.tune[index]
-	pairs := setup.holdAGC
-	if on {
-		pairs = setup.resumeAGC
-	}
-	if pairs != nil {
-		return demod.WritePairs(pairs)
-	}
-	if index == terrestrial {
-		return demod.SetAGCT(on)
-	}
-	return demod.SetAGCS(on)
 }
 
 // openEnclosure initializes a whole enclosure once, publishing it only after

@@ -30,10 +30,6 @@ type Tuner struct {
 // the demodulator core the tuner sits behind.
 func New(bus i2c.Bus, address byte) *Tuner { return &Tuner{bus: bus, address: address} }
 
-func (tuner *Tuner) write8(register, value byte) error {
-	return tuner.bus.Write(tuner.address, []byte{register, value})
-}
-
 func (tuner *Tuner) write(register uint16, value uint32, size int) error {
 	if size < 0 || size > 4 {
 		return fmt.Errorf("NM120 write size %d is invalid", size)
@@ -187,11 +183,6 @@ func (tuner *Tuner) Tune(frequency uint32) error {
 	}{{45000000, 167, 58}, {55000000, 151, 57}, {65000000, 100, 54}, {75000000, 83, 53}, {85000000, 82, 53}, {95000000, 65, 52}, {105000000, 64, 52}, {115000000, 64, 52}, {125000000, 0, 0}}
 	v45 := []uint32{0, 1, 2, 3, 4, 6, 9, 12}
 	loTable := []uint32{0, 0, 434000000, 237000000, 214000000, 118000000, 79000000, 53000000}
-	for _, pair := range [][2]byte{{1, 0x50}, {0x47, 0x30}, {0x25, 0}, {0x20, 0}, {0x23, 0x4d}} {
-		if err := tuner.write8(pair[0], pair[1]); err != nil {
-			return err
-		}
-	}
 	clockFrequency := frequency
 	var loFrequency, v14, integer, fraction uint32
 	var band byte
@@ -345,11 +336,6 @@ func (tuner *Tuner) Tune(frequency uint32) error {
 			return err
 		}
 		if err = tuner.write(0x104, v|0x20, 4); err != nil {
-			return err
-		}
-	}
-	for _, pair := range [][2]byte{{0x23, 0x4c}, {1, 0x50}, {0x71, 1}, {0x72, 0x24}} {
-		if err := tuner.write8(pair[0], pair[1]); err != nil {
 			return err
 		}
 	}

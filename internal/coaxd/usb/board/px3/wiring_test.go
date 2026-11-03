@@ -20,17 +20,21 @@ type terrestrialTuneFunc func(uint32) error
 
 func (tune terrestrialTuneFunc) Tune(frequency uint32) error { return tune(frequency) }
 
-func TestFC0012AcquisitionSequence(t *testing.T) {
-	for _, product := range []uint16{1, 3, 4, 5} {
+func TestTerrestrialAcquisitionSequence(t *testing.T) {
+	for _, product := range []uint16{1, 3, 4, 5, 6} {
 		for _, fail := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%d/fail=%t", product, fail), func(t *testing.T) {
 				bus := &frontendTrace{}
 				wired := wiringFor(product)
+				rfAddress := byte(0xc6)
+				if product == v2Product {
+					rfAddress = 0xce
+				}
 				ends := frontEnds{
 					wired:  wired,
 					demodT: tc90522.New(bus, wired.demodTerrestrial, false),
 					tunerT: terrestrialTuneFunc(func(uint32) error {
-						_ = bus.Write(0x30, []byte{0xfe, 0xc6})
+						_ = bus.Write(wired.demodTerrestrial, []byte{0xfe, rfAddress})
 						if fail {
 							return errFrontendTransfer
 						}
@@ -43,12 +47,19 @@ func TestFC0012AcquisitionSequence(t *testing.T) {
 					t.Fatalf("tune result: %v", err)
 				}
 				want := [][]byte{{0x30, 0x25, 0}, {0x30, 0x23, 0x4d}, {0x30, 0xfe, 0xc6}}
+				if product == v2Product {
+					want = [][]byte{{0x20, 1, 0x50}, {0x20, 0x47, 0x30}, {0x20, 0x25, 0}, {0x20, 0x20, 0}, {0x20, 0x23, 0x4d}, {0x20, 0xfe, 0xce}}
+				}
 				if !fail {
 					value := byte(0x34)
 					if product == 1 {
 						value = 0x14
 					}
-					want = append(want, []byte{0x30, 0x0f, value}, []byte{0x30, 1, 0x40}, []byte{0x30, 0x23, 0x4c})
+					if product == v2Product {
+						want = append(want, []byte{0x20, 0x23, 0x4c}, []byte{0x20, 1, 0x50}, []byte{0x20, 0x71, 1}, []byte{0x20, 0x72, 0x24}, []byte{0x20, 0x75, 2})
+					} else {
+						want = append(want, []byte{0x30, 0x0f, value}, []byte{0x30, 1, 0x40}, []byte{0x30, 0x23, 0x4c})
+					}
 				}
 				if len(bus.writes) != len(want) {
 					t.Fatalf("acquisition writes = % x; want % x", bus.writes, want)
@@ -63,12 +74,58 @@ func TestFC0012AcquisitionSequence(t *testing.T) {
 	}
 }
 
+func TestAcquisitionStopsAtFailedDemodulatorWrite(t *testing.T) {
+	for _, register := range []byte{0x25, 0x0f, 0x01} {
+		t.Run(fmt.Sprintf("%02x", register), func(t *testing.T) {
+			bus := &frontendTrace{failRegister: register}
+			called := false
+			ends := frontEnds{
+				wired:  wiringFor(0x0005),
+				demodT: tc90522.New(bus, 0x30, false),
+				tunerT: terrestrialTuneFunc(func(uint32) error { called = true; return nil }),
+			}
+			front := frontend{hardware: &hardware{frontEnds: ends, controller: &controller{}}}
+			if err := front.tuneTerrestrial(557143000); !errors.Is(err, errFrontendTransfer) {
+				t.Fatalf("missing transfer failure: %v", err)
+			}
+			if called != (register != 0x25) {
+				t.Fatalf("RF tuner called=%t after failure at %02x", called, register)
+			}
+			if last := bus.writes[len(bus.writes)-1]; last[1] != register {
+				t.Fatalf("continued after failed write: % x", bus.writes)
+			}
+		})
+	}
+}
+
+func TestS3U2PulseFailureStopsInitialization(t *testing.T) {
+	bus := &frontendTrace{failWrite: []byte{0xfe, 0xc6, 0x10, 0x10}}
+	if _, err := newFrontEnds(bus, wiringFor(0x0003)); !errors.Is(err, errFrontendTransfer) {
+		t.Fatalf("missing pulse failure: %v", err)
+	}
+	for _, write := range bus.writes {
+		if write[0] == 0x32 {
+			t.Fatalf("satellite initialized after RF pulse failure: % x", write)
+		}
+	}
+}
+
+func TestMalformedTunerSetupFailsBeforeWriting(t *testing.T) {
+	bus := &frontendTrace{}
+	ends := frontEnds{demodT: tc90522.New(bus, 0x30, false)}
+	err := ends.configureDemods(bus, []demodSetup{{index: terrestrial, tuner: 0xc6, pairs: []byte{0x10}}})
+	if err == nil || len(bus.writes) != 0 {
+		t.Fatalf("malformed setup: err=%v, writes=% x", err, bus.writes)
+	}
+}
+
 // Record the real FC0012/NM120 initialization through newFrontEnds, including
 // the V2's two demodulator addresses. RF reads return a supported NM131 ID.
 type frontendTrace struct {
 	writes       [][]byte
 	selected     uint16
 	failRegister byte
+	failWrite    []byte
 }
 
 func (*frontendTrace) SetGPIO(byte, byte) error   { return errors.New("unexpected GPIO access") }
@@ -76,7 +133,7 @@ func (*frontendTrace) SetGPIOEx(byte, byte) error { return errors.New("unexpecte
 func (bus *frontendTrace) I2C(byte) i2c.Bus       { return bus }
 func (bus *frontendTrace) Write(address byte, data []byte) error {
 	bus.writes = append(bus.writes, append([]byte{address}, data...))
-	if len(data) == 2 && data[0] == bus.failRegister {
+	if len(data) == 2 && data[0] == bus.failRegister || bytes.Equal(data, bus.failWrite) {
 		return errFrontendTransfer
 	}
 	if len(data) >= 4 && bytes.Equal(data[:2], []byte{0xfe, 0xce}) {
@@ -186,6 +243,29 @@ func TestDemodulatorPreparationPrecedesRFInitialization(t *testing.T) {
 			}
 			if last := bus.writes[len(bus.writes)-1]; !bytes.Equal(last, one.last) {
 				t.Fatalf("last initialization write = % x, want % x", last, one.last)
+			}
+			if one.name == "S3U2" {
+				var pulses []byte
+				var positions []int
+				firstSatellite, lastSatellite := -1, -1
+				for at, write := range bus.writes {
+					if write[0] == 0x32 {
+						if firstSatellite < 0 {
+							firstSatellite = at
+						}
+						lastSatellite = at
+					}
+					if len(write) == 5 && bytes.Equal(write[:4], []byte{0x30, 0xfe, 0xc6, 0x10}) {
+						pulses = append(pulses, write[4])
+						positions = append(positions, at)
+					}
+				}
+				if !bytes.Equal(pulses, []byte{0, 0, 0x10, 0, 0, 0x10, 0}) {
+					t.Fatalf("RF10 initialization and pulses = % x", pulses)
+				}
+				if positions[1] != firstRF+21 || positions[3]+1 != firstSatellite || lastSatellite+1 != positions[4] || positions[6]+1 != len(bus.writes)-1 {
+					t.Fatalf("RF pulses at %v, satellite initialization at %d..%d", positions, firstSatellite, lastSatellite)
+				}
 			}
 			if !bytes.Equal(tc90522.InitTerrestrial, common) {
 				t.Fatal("common defaults changed")
