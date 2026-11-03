@@ -95,7 +95,11 @@ func (ic *fakeIC) command(opcode byte) error {
 		ic.acknowledged++
 		ic.buffered = 0
 	case commandReset:
-		ic.load(frame([]byte{0x3b, 0xf0, 0x12, 0x00, 0xff, 0x91, 0x81, 0xb1, 0x7c, 0x45, 0x1f, 0x03}))
+		atr := []byte{0x3b, 0xf0, 0x12, 0x00, 0xff, 0x91, 0x81, 0xb1, 0x7c, 0x45, 0x1f, 0x03, 0x99}
+		for index := range atr {
+			atr[index] = bits.Reverse8(atr[index])
+		}
+		ic.load(atr)
 	case commandPrepare, commandPower, commandIdle:
 	default:
 		return errors.New("unmodelled command")
@@ -186,16 +190,9 @@ func TestResetReturnsTheATRAndRequestsAnInformationFieldSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []byte{0x3b, 0xf0, 0x12, 0x00, 0xff, 0x91, 0x81, 0xb1, 0x7c, 0x45, 0x1f, 0x03}
-	// The ATR comes back in card bit order with its checksum attached, which
-	// is what a caller needs to see the card's own convention.
-	if len(atr) != len(want)+1 {
-		t.Fatalf("ATR is %d bytes; want %d", len(atr), len(want)+1)
-	}
-	for index, value := range want {
-		if bits.Reverse8(atr[index]) != value {
-			t.Fatalf("ATR byte %d = %#02x; want %#02x reversed", index, atr[index], value)
-		}
+	want := []byte{0x3b, 0xf0, 0x12, 0x00, 0xff, 0x91, 0x81, 0xb1, 0x7c, 0x45, 0x1f, 0x03, 0x99}
+	if !bytes.Equal(atr, want) {
+		t.Fatalf("ATR = % x; want % x", atr, want)
 	}
 	if len(ic.sent) != 1 {
 		t.Fatalf("sent %d blocks during reset; want the one information field request", len(ic.sent))

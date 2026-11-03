@@ -207,6 +207,9 @@ func (reader *Reader) Reset() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read ATR: %w", err)
 	}
+	for index := range atr {
+		atr[index] = bits.Reverse8(atr[index])
+	}
 	if err := reader.bus.Write(registerProtocol, []byte{0x01}); err != nil {
 		return nil, err
 	}
