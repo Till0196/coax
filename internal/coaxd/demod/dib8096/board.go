@@ -442,6 +442,11 @@ func (board *Demod) setFrontend(frequencyHz uint32) error {
 		if err := board.attempt(frequencyHz, nil); err != nil {
 			return err
 		}
+		if board.failure.err == nil && board.demod.status != statusDataLocked {
+			if err := board.attemptUsual(frequencyHz); err != nil {
+				return err
+			}
+		}
 	}
 	if board.failure.err != nil || memory == nil || board.demod.status != statusDataLocked || board.demod.readStatus()&feHasLock == 0 {
 		return board.failure.err
@@ -464,6 +469,39 @@ func (board *Demod) attempt(frequencyHz uint32, words *[2]uint32) error {
 		tmccFromWords(*words).apply(&board.channel)
 	}
 	err := board.demod.setFrontend()
+	board.tunedAt = board.demod.now()
+	return err
+}
+
+// attemptUsual tunes with the parameters terrestrial broadcasts in Japan use
+// (ARIB TR-B14: mode 3, guard interval 1/8, layer A one segment of QPSK 2/3
+// with I=4, layer B twelve segments of 64QAM 3/4 with I=2). The search fails
+// on signals that still lock once the parameters are given. If these do not
+// lock, the TMCC the demodulator read is tuned with instead.
+func (board *Demod) attemptUsual(frequencyHz uint32) error {
+	c := &board.channel
+	c.clear()
+	c.frequency = frequencyHz
+	c.transmissionMode = transmission8K
+	c.guardInterval = guard1_8
+	c.inversion = 0
+	c.isdbtPartialReception = 1
+	c.layer[0] = layerParameters{modulation: modulationQPSK, fec: fec2_3, interleaving: 4, segmentCount: 1}
+	c.layer[1] = layerParameters{modulation: modulationQAM64, fec: fec3_4, interleaving: 2, segmentCount: 12}
+	c.layer[2] = layerParameters{modulation: modulationQAMAuto, fec: fecAuto}
+	err := board.demod.setFrontend()
+	board.tunedAt = board.demod.now()
+	if err != nil || board.failure.err != nil || board.demod.status == statusDataLocked {
+		return err
+	}
+
+	tried := *c
+	board.demod.getFrontend()
+	if *c == tried || !isManualMode(c) {
+		*c = tried
+		return nil
+	}
+	err = board.demod.setFrontend()
 	board.tunedAt = board.demod.now()
 	return err
 }

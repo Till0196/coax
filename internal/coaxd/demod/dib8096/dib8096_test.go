@@ -505,15 +505,17 @@ func TestInterpolateStrength(t *testing.T) {
 // A search that fails is tried again a second later, as dvb-core does, and a
 // lost lock after a lock is left to the chip.
 func TestTuneRetriesAfterASecond(t *testing.T) {
-	chip := lockedChip()
-	demod, clock := newTestDemod(chip)
+	// The first search fails; the second, on the retune, succeeds. Nothing is
+	// locked until the retune has run.
+	locking := &lockingChip{fakeChip: lockedChip(), locked: func(chip *fakeChip) bool { return len(chip.queues[1284]) <= 1 }}
+	chip := locking.fakeChip
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	demod := New(locking)
+	demod.setTiming(clock.Now, clock.Sleep, 5*time.Second)
 	if err := demod.Initialize(); err != nil {
 		t.Fatal(err)
 	}
-	// The first search fails; the second, on the retune, succeeds. Nothing is
-	// locked until the retune has run.
 	chip.queues[1284] = []uint16{0x1, 0x0, 0x1, 0x1, 0x0, 0x2}
-	chip.queues[568] = []uint16{0, 0, 0x3ffe}
 	if err := demod.Tune(473142857); err != nil {
 		t.Fatal(err)
 	}
@@ -670,6 +672,97 @@ func TestTuneUsesRememberedParameters(t *testing.T) {
 	}
 	if !searched(chip.fakeChip) || demod.demod.status != statusDataLocked {
 		t.Errorf("remembered parameters that do not lock: searched %v, status %d; want a search and a lock", searched(chip.fakeChip), demod.demod.status)
+	}
+}
+
+// lockingChip's lock register reads before until locked reports a lock.
+type lockingChip struct {
+	*fakeChip
+	locked func(*fakeChip) bool
+	before uint16
+}
+
+func (chip *lockingChip) WriteRead(address byte, write []byte, readLength int) ([]byte, error) {
+	if address == Address && len(write) == 2 && uint16(write[0])<<8|uint16(write[1]) == 568 && !chip.locked(chip.fakeChip) {
+		return []byte{byte(chip.before >> 8), byte(chip.before)}, nil
+	}
+	return chip.fakeChip.WriteRead(address, write, readLength)
+}
+
+// fromAttempt locks from the given attempt with known parameters on.
+func fromAttempt(n int) func(*fakeChip) bool {
+	return func(chip *fakeChip) bool { return restarts(chip) >= n }
+}
+
+// tmccSync is the lock register with the signal, the carrier and the TMCC
+// but no layer locked.
+const tmccSync = 1<<13 | 1<<8 | 0xf<<1
+
+// A channel the search fails on is tuned with the usual parameters, then with
+// the TMCC read when those do not lock either.
+func TestTuneAfterFailedSearch(t *testing.T) {
+	const frequency = 473142857
+	for _, test := range []struct {
+		name     string
+		from     int
+		attempts int
+		locked   bool
+	}{
+		{"usual parameters lock", 1, 1, true},
+		{"TMCC locks", 2, 2, true},
+		{"nothing locks", 3, 2, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			chip := &lockingChip{fakeChip: lockedChip(), locked: fromAttempt(test.from), before: tmccSync}
+			// The FFT pass finishes, the interrupt is cleared, and the guard pass fails.
+			chip.queues[1284] = []uint16{0x1, 0x0, 0x1}
+			clock := &fakeClock{now: time.Unix(1000, 0)}
+			demod := New(chip)
+			demod.setTiming(clock.Now, clock.Sleep, 5*time.Second)
+			if err := demod.Initialize(); err != nil {
+				t.Fatal(err)
+			}
+			chip.writes = nil
+			if err := demod.Tune(frequency); err != nil {
+				t.Fatal(err)
+			}
+			if !searched(chip.fakeChip) {
+				t.Error("the tune did not search first")
+			}
+			if n := restarts(chip.fakeChip); n != test.attempts {
+				t.Errorf("%d attempts with known parameters, want %d", n, test.attempts)
+			}
+			if locked := demod.demod.status == statusDataLocked; locked != test.locked {
+				t.Errorf("status %d, want locked %v", demod.demod.status, test.locked)
+			}
+			c := demod.channel
+			if c.transmissionMode != transmission8K || c.guardInterval != guard1_8 || c.layer[1].segmentCount != 12 {
+				t.Errorf("tuned with %+v", c)
+			}
+			// The fake's TMCC has I=2 in layer A where the usual parameters have I=4.
+			if want := map[int]uint8{1: 4, 2: 2, 3: 2}[test.from]; c.layer[0].interleaving != want {
+				t.Errorf("layer A interleaving %d, want %d", c.layer[0].interleaving, want)
+			}
+		})
+	}
+}
+
+// A channel without TMCC sync is tuned once with the usual parameters only.
+func TestTuneAfterFailedSearchWithoutSignal(t *testing.T) {
+	chip := &lockingChip{fakeChip: lockedChip(), locked: func(*fakeChip) bool { return false }}
+	chip.queues[1284] = []uint16{0x1, 0x0, 0x1}
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	demod := New(chip)
+	demod.setTiming(clock.Now, clock.Sleep, 5*time.Second)
+	if err := demod.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	chip.writes = nil
+	if err := demod.Tune(473142857); err != nil {
+		t.Fatal(err)
+	}
+	if n := restarts(chip.fakeChip); n != 1 {
+		t.Errorf("%d attempts with known parameters, want 1", n)
 	}
 }
 
