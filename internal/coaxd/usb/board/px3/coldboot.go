@@ -88,7 +88,9 @@ func bootColdBoards(options device.Options) error {
 		if err != nil {
 			return err
 		}
-		if warm.ID.Product != 0x0004 && warm.ID.Product != 0x0005 && warm.ID.Product != v2Product {
+		// GPIO 0x40 on the V2's warm bridge drops a sibling still in its boot
+		// ROM, so only the W3U2 and W3U3 have theirs brought back this way.
+		if warm.ID.Product != 0x0004 && warm.ID.Product != 0x0005 {
 			continue
 		}
 		siblings, err := restoreBootSibling(warm)

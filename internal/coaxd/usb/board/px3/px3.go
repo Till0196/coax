@@ -419,12 +419,14 @@ func open(options device.Options) (device.Board, error) {
 
 	if product == 0x0004 || product == 0x0005 || product == v2Product {
 		if _, err := siblingOf(own.location, product); err != nil {
-			warm, err := usbio.Resolve(own.location, supportedIDs)
-			if err != nil {
-				return fail("locate enclosure", err)
-			}
-			if _, err := restoreBootSibling(warm); err != nil {
-				return fail("restore enclosure sibling", err)
+			if product != v2Product {
+				warm, err := usbio.Resolve(own.location, supportedIDs)
+				if err != nil {
+					return fail("locate enclosure", err)
+				}
+				if _, err := restoreBootSibling(warm); err != nil {
+					return fail("restore enclosure sibling", err)
+				}
 			}
 			if err := boot(options); err != nil {
 				return fail("boot enclosure sibling", err)
