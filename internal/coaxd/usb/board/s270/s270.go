@@ -229,42 +229,39 @@ func (front *frontend) tuneWords(selected mode, frequency uint32, properties map
 	return siano.Words(frequency, code, referenceHz), nil
 }
 
-// Status reports the lock state for the last tuned channel.
+// Status reports the lock state and signal readings for the last tuned channel.
 func (front *frontend) Status() (device.Status, error) {
 	if !front.tuned {
 		return device.Status{}, nil
 	}
-	locked, err := front.locked()
-	if err != nil || !locked {
-		return device.Status{}, err
-	}
-	return device.Status{
-		Locked: true,
-		Names:  device.LockNames,
-	}, nil
-}
-
-// locked reads the demodulator lock out of the firmware's statistics, falling
-// back on the indication the firmware sends unprompted. Which request to send
-// and where the lock sits follow the running mode: the extended statistics are
-// ISDB-T only, and the plain reply has no type and size ahead of the lock flags.
-func (front *frontend) locked() (bool, error) {
 	body, err := front.siano.Exchange(front.mode.statisticsRequest, front.mode.statisticsResponse,
 		siano.ControlMsgID, nil, 5*time.Second)
 	if err != nil {
 		// The statistics request is only a prompt: the firmware announces lock
 		// on its own too, so a missing answer is not yet a failure.
-		return front.siano.Locked(), nil
+		body = nil
 	}
+	return front.mode.status(body, front.siano.Locked()), nil
+}
+
+// status keeps the asynchronous lock indication as a fallback, but signal
+// readings must come from a successful statistics reply for the current tune.
+func (selected mode) status(body []byte, indicatedLock bool) device.Status {
+	status := device.Status{Locked: indicatedLock}
 	// The body opens with a request result, then the statistics themselves.
-	offset := front.mode.demodLockedOffset
-	if len(body) < offset+4 {
-		return front.siano.Locked(), nil
+	offset := selected.demodLockedOffset
+	if len(body) >= offset+4 && binary.LittleEndian.Uint32(body) == 0 {
+		locked := binary.LittleEndian.Uint32(body[offset:]) != 0
+		status.Locked = status.Locked || locked
+		if locked && selected.statisticsResponse == siano.MsgGetStatisticsExRes {
+			status.CNR = siano.ISDBTSNR(body[4:])
+			status.Strength = siano.ISDBTInBandPower(body[4:])
+		}
 	}
-	if binary.LittleEndian.Uint32(body[offset:]) != 0 {
-		return true, nil
+	if status.Locked {
+		status.Names = device.LockNames
 	}
-	return front.siano.Locked(), nil
+	return status
 }
 
 // StartStream asks the firmware for the whole transport stream. It sends
