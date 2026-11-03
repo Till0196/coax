@@ -4,6 +4,7 @@
 package fc0012
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 )
@@ -163,6 +164,56 @@ func TestTuneWorksOutTheDivider(t *testing.T) {
 func TestTuneRefusesAWidthTheChipCannotEncode(t *testing.T) {
 	if err := newTestTuner(newFakeBus()).Tune(557_142_857, 5_000_000); err == nil {
 		t.Error("a 5 MHz channel was accepted")
+	}
+}
+
+func TestTC90522ClockAndRSSICalibration(t *testing.T) {
+	bus := newFakeBus()
+	tuner := New(bus, testDemod, Config{DisableFixedClockOut: true, CalibrateRSSI: true})
+	if err := tuner.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	bus.writes = nil
+	bus.readback[registerVCOCal] = 0x60
+	if err := tuner.Tune(557_143_000, 6_000_000); err != nil {
+		t.Fatal(err)
+	}
+	if got := bus.writesTo(0x09); !bytes.Equal(got, []byte{0x7e, 0x6e}) {
+		t.Fatalf("RSSI calibration = % x", got)
+	}
+	if got := bus.writesTo(0x06); !bytes.Equal(got, []byte{0x01, 0x01, 0x88}) {
+		t.Fatalf("RSSI and PLL clock settings = % x", got)
+	}
+	if got := bus.registers[0x04]; got != 0x6f {
+		t.Fatalf("fraction for 557143 kHz = %02x", got)
+	}
+	if ready, err := tuner.Calibrated(); err != nil || !ready {
+		t.Fatalf("calibration flag: %t %v", ready, err)
+	}
+	bus.readback[registerVCOCal] = 0x20
+	if ready, err := tuner.Calibrated(); err != nil || ready {
+		t.Fatalf("range value accepted as completion: %t %v", ready, err)
+	}
+}
+
+func TestGainFeedbackThresholds(t *testing.T) {
+	for _, one := range []struct{ setting, sample, want byte }{
+		{0x02, 0x16, 0x02}, // scalar 54
+		{0x02, 0x17, 0x0a}, // scalar 56
+		{0x0a, 0x18, 0x14}, // scalar 58
+		{0x0a, 0x0a, 0x02}, // scalar 30
+		{0x14, 0x17, 0x10},
+		{0x14, 0x0f, 0x0a},
+		{0x10, 0x14, 0x14},
+		{0x10, 0x15, 0x10}, // scalar 52
+	} {
+		bus := newFakeBus()
+		bus.registers[0x13] = one.setting
+		bus.readback[0x12] = one.sample
+		changed, err := newTestTuner(bus).AdjustGain()
+		if err != nil || bus.registers[0x13] != one.want || changed != (one.setting != one.want) {
+			t.Fatalf("gain %02x sample %02x: got %02x changed=%t err=%v", one.setting, one.sample, bus.registers[0x13], changed, err)
+		}
 	}
 }
 

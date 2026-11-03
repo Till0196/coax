@@ -73,8 +73,9 @@ func (tuner *Tuner) Tune(frequencyHz, bandwidthHz uint32) error {
 		registers[1], registers[2] = 0x06, 0x11
 	}
 
-	// Hold the output clock steady across the retune.
-	registers[6] |= 0x20
+	if !tuner.config.DisableFixedClockOut {
+		registers[6] |= 0x20
+	}
 
 	// The fractional part of the delta-sigma divider, in fifteen bits with a
 	// carry into the sixteenth that the chip reads as a sign.
@@ -100,6 +101,11 @@ func (tuner *Tuner) Tune(frequencyHz, bandwidthHz uint32) error {
 	// demodulator this chip is paired with, so they stay.
 	registers[5] |= 0x07
 
+	if tuner.config.CalibrateRSSI {
+		if err := tuner.calibrateRSSI(); err != nil {
+			return err
+		}
+	}
 	for register := 1; register <= 6; register++ {
 		if err := tuner.write(byte(register), registers[register]); err != nil {
 			return err
@@ -108,18 +114,41 @@ func (tuner *Tuner) Tune(frequencyHz, bandwidthHz uint32) error {
 	return tuner.calibrate(registers[6], highBand)
 }
 
+func (tuner *Tuner) calibrateRSSI() error {
+	for at, step := range [][3]byte{{0x09, 0xff, 0x10}, {0x06, 0xff, 0x01}, {0x09, 0xef, 0}, {0x06, 0xef, 0}} {
+		value, err := tuner.read(step[0])
+		if err != nil {
+			return err
+		}
+		if err := tuner.write(step[0], value&step[1]|step[2]); err != nil {
+			return err
+		}
+		if at == 1 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	return nil
+}
+
+// Calibrated reports the completion flag independently of the VCO range value.
+func (tuner *Tuner) Calibrated() (bool, error) {
+	value, err := tuner.read(registerVCOCal)
+	return value&0x40 != 0, err
+}
+
 // calibrate runs the oscillator's calibration and, if it settled at the end of
 // its range, moves it to the other band and runs it again.
 func (tuner *Tuner) calibrate(register6 byte, highBand bool) error {
 	if err := tuner.runCalibration(); err != nil {
 		return err
 	}
-	// A second calibration pass before waiting: undocumented, costs a few
-	// milliseconds, and dropping it changes a sequence known to work.
+	time.Sleep(tuner.config.VCOLatchDelay)
 	if err := tuner.write(registerVCOCal, 0x00); err != nil {
 		return err
 	}
-	time.Sleep(10 * time.Millisecond)
+	if tuner.config.VCOLatchDelay == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
 	settled, err := tuner.read(registerVCOCal)
 	if err != nil {
 		return err
@@ -137,7 +166,11 @@ func (tuner *Tuner) calibrate(register6 byte, highBand bool) error {
 	if err := tuner.write(0x06, register6); err != nil {
 		return err
 	}
-	return tuner.runCalibration()
+	if err := tuner.runCalibration(); err != nil {
+		return err
+	}
+	time.Sleep(tuner.config.VCOLatchDelay)
+	return nil
 }
 
 func (tuner *Tuner) runCalibration() error {

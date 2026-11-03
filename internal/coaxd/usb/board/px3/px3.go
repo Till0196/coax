@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/demod/tc90522"
@@ -160,10 +161,67 @@ const isdbtBandwidthHz = 6_000_000
 
 // fc0012Tuner fixes the channel width, leaving the one-argument shape the board
 // uses.
-type fc0012Tuner struct{ *fc0012.Tuner }
+type fc0012Tuner struct {
+	*fc0012.Tuner
+	w3                      bool
+	gain                    int
+	manualGain, gainApplied bool
+}
 
-func (tuner fc0012Tuner) Tune(frequencyHz uint32) error {
+func (tuner *fc0012Tuner) Tune(frequencyHz uint32) error {
+	if tuner.w3 {
+		// The channel centre has a 1/7 MHz offset from its integer MHz.
+		mhz := frequencyHz / 1_000_000
+		switch {
+		case mhz >= 165 && mhz <= 167:
+			mhz = 167
+		case mhz >= 195 && mhz <= 197:
+			mhz = 195
+		case mhz >= 471 && mhz <= 473:
+			mhz = 473
+		}
+		frequencyHz = mhz*1_000_000 + 143_000
+		if err := tuner.Tuner.SetLNAGain(tuner.gain); err != nil {
+			return err
+		}
+		tuner.gainApplied = false
+	}
 	return tuner.Tuner.Tune(frequencyHz, isdbtBandwidthHz)
+}
+
+func (tuner *fc0012Tuner) SetLNAGain(step int) error {
+	if err := tuner.Tuner.SetLNAGain(step); err != nil {
+		return err
+	}
+	tuner.gain = step
+	tuner.manualGain = true
+	return nil
+}
+
+// acquire retries RF calibration without releasing demodulator gain control.
+func (tuner *fc0012Tuner) acquire(demod *tc90522.Demod, frequencyHz uint32) error {
+	for attempt := 0; attempt < 4; attempt++ {
+		if err := tuner.Tune(frequencyHz); err != nil {
+			return err
+		}
+		if err := demod.SetFC0012Band(frequencyHz); err != nil {
+			return err
+		}
+		ready, err := tuner.Calibrated()
+		if err != nil {
+			return err
+		}
+		if ready || attempt == 3 {
+			return nil
+		}
+		if err := demod.ResetTuner(); err != nil {
+			return err
+		}
+		if err := tuner.Initialize(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func newFC0012(bus i2c.Bus, demod byte) (terrestrialTuner, error) {
@@ -171,7 +229,17 @@ func newFC0012(bus i2c.Bus, demod byte) (terrestrialTuner, error) {
 	if err := tuner.Initialize(); err != nil {
 		return nil, err
 	}
-	return fc0012Tuner{tuner}, nil
+	return &fc0012Tuner{Tuner: tuner, gain: fc0012.LNASteps - 1}, nil
+}
+
+func newW3FC0012(bus i2c.Bus, demod byte) (terrestrialTuner, error) {
+	tuner := fc0012.New(bus, demod, fc0012.Config{
+		DisableFixedClockOut: true, CalibrateRSSI: true, VCOLatchDelay: time.Millisecond,
+	})
+	if err := tuner.Initialize(); err != nil {
+		return nil, err
+	}
+	return &fc0012Tuner{Tuner: tuner, w3: true}, nil
 }
 
 func newNM120(bus i2c.Bus, demod byte) (terrestrialTuner, error) {
@@ -222,7 +290,7 @@ func fc0012WiringFor(product uint16) wiring {
 	wired := wiring{
 		demodTerrestrial: 0x30,
 		demodSatellite:   0x32,
-		newTerrestrial:   newFC0012,
+		newTerrestrial:   newW3FC0012,
 		newSatellite:     newTableSatellite,
 		beforeRF: []demodSetup{
 			{index: terrestrial, pairs: terrestrialDefaults},
@@ -241,6 +309,7 @@ func fc0012WiringFor(product uint16) wiring {
 		satelliteName:   "QM1D1B0004",
 	}
 	if product == 0x0001 {
+		wired.newTerrestrial = newFC0012
 		wired.beforeRF = []demodSetup{
 			satelliteDefaults,
 			{index: terrestrial, pairs: terrestrialDefaults},
@@ -249,6 +318,7 @@ func fc0012WiringFor(product uint16) wiring {
 		wired.afterTune[terrestrial] = []demodSetup{{index: terrestrial, pairs: []byte{0x0f, 0x14}}}
 		wired.afterTune[satellite] = []demodSetup{{index: terrestrial, address: 0x34, pairs: []byte{0x0f, 0x3c}}}
 	} else if product == 0x0003 {
+		wired.newTerrestrial = newFC0012
 		pulse := demodSetup{index: terrestrial, tuner: 0xc6, pairs: []byte{0x10, 0x00, 0x10, 0x10, 0x10, 0x00}}
 		wired.afterRF = []demodSetup{pulse, satelliteDefaults, pulse, {index: terrestrial, pairs: []byte{0x0f, 0x34}}}
 	}
@@ -442,6 +512,9 @@ func (hardware *hardware) setExternalAmplifier(index int, on bool) error {
 
 func (hardware *hardware) restoreExternalAmplifiers(indices ...int) error {
 	if hardware.wired.externalAmplifier == nil {
+		if tuner, ok := hardware.tunerT.(*fc0012Tuner); ok && tuner.w3 && slices.Contains(indices, terrestrial) {
+			return hardware.control.SetGPIO(0, 0x01)
+		}
 		return nil
 	}
 	hardware.amplifiers.Lock()
@@ -509,6 +582,17 @@ func (front *frontend) Tune(properties map[string]string) error {
 	if delivery != wanted {
 		return fmt.Errorf("ASV52xx tuner %d does not support %q", front.index, properties["DELIVERY_SYSTEM"])
 	}
+	if front.index == terrestrial {
+		if tuner, ok := front.hardware.tunerT.(*fc0012Tuner); ok && tuner.w3 {
+			gain, err := tuning.ParseGain(properties)
+			if err != nil {
+				return err
+			}
+			if gain.Kind == tuning.GainAuto {
+				tuner.manualGain, tuner.gain = false, 0
+			}
+		}
+	}
 	frequency, err := tuning.Number(properties, "FREQUENCY", true)
 	if err != nil {
 		return err
@@ -552,9 +636,7 @@ func (front *frontend) GainLadder(string) tuning.GainLadder {
 	return tuning.NewGainLadder(fc0012.GainStepsDB()...)
 }
 
-// SetGain moves whichever of those this board has. Both come up at the top, so
-// the setting exists to turn one down for an aerial strong enough to overload
-// the front end.
+// SetGain moves the input amplifier to the requested ladder step.
 func (front *frontend) SetGain(step int) error {
 	if front.hardware.wired.externalAmplifier != nil {
 		return front.hardware.setExternalAmplifier(front.index, step > 0)
@@ -583,6 +665,9 @@ func (front *frontend) tuneTerrestrial(frequency uint64) error {
 		frequency *= 1000
 	}
 	return front.hardware.demodT.Tune(front.hardware.wired.tuners[terrestrial], func() error {
+		if tuner, ok := front.hardware.tunerT.(*fc0012Tuner); ok && tuner.w3 {
+			return tuner.acquire(front.hardware.demodT, uint32(frequency))
+		}
 		if err := front.hardware.tunerT.Tune(uint32(frequency)); err != nil {
 			return fmt.Errorf("tune the terrestrial tuner: %w", err)
 		}
@@ -644,6 +729,18 @@ func (front *frontend) Status() (device.Status, error) {
 	}
 	if err != nil || !locked {
 		return device.Status{}, err
+	}
+	if front.index == terrestrial {
+		if tuner, ok := front.hardware.tunerT.(*fc0012Tuner); ok && tuner.w3 && !tuner.manualGain && !tuner.gainApplied {
+			changed, err := tuner.AdjustGain()
+			if err != nil {
+				return device.Status{}, err
+			}
+			tuner.gainApplied = true
+			if changed {
+				return device.Status{}, nil
+			}
+		}
 	}
 	status := device.Status{Locked: true, Names: device.LockNames}
 	var cnr float64

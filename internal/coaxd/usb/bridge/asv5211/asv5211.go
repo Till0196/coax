@@ -169,6 +169,33 @@ func (bus bus) read(length int) ([]byte, error) {
 	return bus.bridge.command(0x19, uint16(bus.target), 0, length)
 }
 
+// ReadRegisters reads demodulator registers with a stop after the register address.
+func (bus bus) ReadRegisters(address, register byte, length int) ([]byte, error) {
+	if err := bus.checkAddress(address); err != nil {
+		return nil, err
+	}
+	return bus.bridge.readRegisters(address, register, length, 1)
+}
+
+func (bridge *Bridge) readRegisters(address, register byte, length int, mode uint16) ([]byte, error) {
+	if length <= 0 {
+		return nil, errors.New("ASV5211 register read length must be positive")
+	}
+	bridge.i2cMu.Lock()
+	defer bridge.i2cMu.Unlock()
+	result := make([]byte, 0, length)
+	for len(result) < length {
+		count := min(0x20, length-len(result))
+		data, err := bridge.command(0x02, uint16(address)|uint16(register)<<8, mode, count)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, data...)
+		register += byte(count)
+	}
+	return result, nil
+}
+
 func (bus bus) WriteRead(address byte, write []byte, readLength int) ([]byte, error) {
 	if err := bus.checkAddress(address); err != nil {
 		return nil, err

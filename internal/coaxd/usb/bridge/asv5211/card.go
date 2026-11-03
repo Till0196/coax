@@ -3,10 +3,7 @@
 
 package asv5211
 
-import (
-	"errors"
-	"fmt"
-)
+import "fmt"
 
 // CardBus is register access to the card interface IC on the bridge's I2C bus.
 // The IC answers on one fixed address, so a bus carries that address rather than
@@ -26,10 +23,7 @@ func (card *CardBus) Address() byte { return card.address }
 
 // Read reads count bytes starting at reg.
 func (card *CardBus) Read(reg byte, count int) ([]byte, error) {
-	if count <= 0 {
-		return nil, errors.New("ASV5211 card read length must be positive")
-	}
-	return card.bus.WriteRead(card.address, []byte{reg}, count)
+	return card.bus.bridge.readRegisters(card.address, reg, count, 0)
 }
 
 // Write writes data starting at reg.

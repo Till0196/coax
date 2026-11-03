@@ -23,7 +23,7 @@ import (
 //   - a reset pulse on a GPIO line (0x11 for the first unit, 0x80 for any
 //     other, unless that one shares the first's IC);
 //   - the IC's revision from register 0x09, (value >> 1) & 0x1f, at 0x5a or
-//     else 0x4a (0x5c or else 0x4c for a V2 tuner with an IC of its own);
+//     else 0x4a (0x5c or else 0x4c for a tuner with an IC of its own);
 //   - for revisions 0x03, 0x0f and 0x10, register 5 written from the
 //     demodulator bring-up's answer, which is always 0xe9: bit 1 would give
 //     0x10, bit 3 gives 0x20. Revisions 0x0f and 0x10 serve both tuners of a
@@ -122,6 +122,13 @@ func (hardware *hardware) lookUpTSUnit(unit int) (*tsChip, error) {
 // holds hardware.chips.
 func (hardware *hardware) findTSChip(unit int) (*tsChip, error) {
 	if unit == 0 {
+		// The W3U2's and W3U3's IC answers at 0x4a once the board is powered,
+		// without a reset.
+		if tuner, ok := hardware.tunerT.(*fc0012Tuner); ok && tuner.w3 {
+			if chip, err := hardware.probeTSChip([]byte{0x4a}); err == nil {
+				return chip, nil
+			}
+		}
 		return hardware.resetTSChip(0x11, cardAddresses)
 	}
 	// A unit whose IC is the first's shares it and does not reset it again: that
@@ -129,11 +136,7 @@ func (hardware *hardware) findTSChip(unit int) (*tsChip, error) {
 	if other := hardware.chips.found[0]; other != nil && slices.Contains(tsChipShared, other.revision) {
 		return other, nil
 	}
-	addresses := cardAddresses
-	if hardware.v2 {
-		addresses = []byte{0x5c, 0x4c}
-	}
-	chip, err := hardware.resetTSChip(0x80, addresses)
+	chip, err := hardware.resetTSChip(0x80, []byte{0x5c, 0x4c})
 	if err == nil || hardware.chips.found[0] != nil {
 		return chip, err
 	}
@@ -170,7 +173,10 @@ func (hardware *hardware) resetTSChip(mask byte, addresses []byte) (*tsChip, err
 
 // probeTSChip finds the IC at the first of the addresses that answers.
 func (hardware *hardware) probeTSChip(addresses []byte) (*tsChip, error) {
-	for _, address := range addresses {
+	for at, address := range addresses {
+		if at > 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
 		revision, err := hardware.tsChipRevision(address)
 		if err != nil {
 			continue

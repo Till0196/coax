@@ -21,6 +21,19 @@ type WriteReader interface {
 	WriteRead(address byte, write []byte, readLength int) ([]byte, error)
 }
 
+// RegisterReader is implemented by masters with a native register-read command.
+type RegisterReader interface {
+	ReadRegisters(address, register byte, length int) ([]byte, error)
+}
+
+// ReadRegisters uses a master's register-read command when available.
+func ReadRegisters(bus Bus, address, register byte, length int) ([]byte, error) {
+	if reader, ok := bus.(RegisterReader); ok {
+		return reader.ReadRegisters(address, register, length)
+	}
+	return WriteRead(bus, address, []byte{register}, length)
+}
+
 // Flusher is implemented by masters that hold writes back and send them
 // together; Flush sends what is held.
 type Flusher interface {

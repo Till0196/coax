@@ -7,16 +7,19 @@ import (
 	"bytes"
 	"fmt"
 	"testing"
+
+	"github.com/Till0196/coax/internal/coaxd/demod/tc90522"
 )
 
 // cardDevice models the bridge's I2C commands closely enough to carry a
 // register transfer end to end: 0x0d fills the outgoing buffer three bytes at
-// a time, 0x0e puts it on the bus, and 0x19 reads the answer back. The modelled
+// a time, 0x0e puts it on the bus, and 0x02 reads addressed registers. The modelled
 // IC auto-increments its register pointer, which is what makes a multi-byte
 // transfer address consecutive registers.
 type cardDevice struct {
 	// registers is what the modelled card IC holds.
 	registers map[byte]byte
+	readMode  uint16
 	// pending is the buffer 0x0d fills and 0x0e sends.
 	pending []byte
 	// selected is the register 0x19 will read from.
@@ -43,6 +46,16 @@ func newCardDevice() *cardDevice {
 func (device *cardDevice) Control(_, request byte, value, index uint16, data []byte, _ uint32) (int, error) {
 	device.requests = append(device.requests, request)
 	switch request {
+	case 0x02:
+		if index != device.readMode || len(data) > 0x21 {
+			return 0, fmt.Errorf("invalid register read mode %d or length %d", index, len(data))
+		}
+		device.address = byte(value)
+		data[0] = 1
+		for offset := range data[1:] {
+			data[offset+1] = device.registers[byte(value>>8)+byte(offset)]
+		}
+
 	case 0x0d:
 		offset := int(byte(value))
 		chunk := []byte{byte(value >> 8), byte(index), byte(index >> 8)}
@@ -65,12 +78,6 @@ func (device *cardDevice) Control(_, request byte, value, index uint16, data []b
 			device.registers[device.selected+byte(offset)] = value
 		}
 		data[0] = 1
-	case 0x19:
-		device.address = byte(value)
-		data[0] = 1
-		for offset := range data[1:] {
-			data[offset+1] = device.registers[device.selected+byte(offset)]
-		}
 	case 0x1a:
 		// A fresh nonce each time, and no status byte in front of it.
 		device.nonces++
@@ -194,5 +201,55 @@ func TestReadRejectsAnEmptyTransfer(t *testing.T) {
 	}
 	if device.requests != nil {
 		t.Fatalf("touched the bus: % x", device.requests)
+	}
+}
+
+func TestCardRegisterReadUsesModeZero(t *testing.T) {
+	device := newCardDevice()
+	device.registers[9] = 0x1e
+	got, err := openTestCardBus(device).Read(9, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, []byte{0x1e}) || !bytes.Equal(device.requests, []byte{2}) || device.address != 0x5a {
+		t.Fatalf("data %x requests %x address %x", got, device.requests, device.address)
+	}
+}
+func TestCardReadSplitsAtFirmwareBufferSize(t *testing.T) {
+	device := newCardDevice()
+	want := make([]byte, 65)
+	for i := range want {
+		want[i] = byte(i + 1)
+		device.registers[0x40+byte(i)] = want[i]
+	}
+	got, err := openTestCardBus(device).Read(0x40, len(want))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) || !bytes.Equal(device.requests, []byte{2, 2, 2}) {
+		t.Fatalf("read %x requests %x", got, device.requests)
+	}
+}
+func TestDemodulatorStatusUsesModeOneAndKeepsLockRequirements(t *testing.T) {
+	for _, state := range []struct {
+		sync   byte
+		locked bool
+	}{{0, true}, {2, false}, {8, false}, {0x20, false}} {
+		device := newCardDevice()
+		device.readMode = 1
+		device.registers[0x80] = state.sync
+		device.registers[0xb0] = 0xa9
+		demod := tc90522.New((&Bridge{usb: device}).I2C(0x30), 0x30, false)
+		locked, err := demod.LockedT()
+		if err != nil || locked != state.locked {
+			t.Fatalf("sync %x: lock %v: %v", state.sync, locked, err)
+		}
+		want := []byte{2}
+		if state.locked {
+			want = []byte{2, 2}
+		}
+		if !bytes.Equal(device.requests, want) || device.address != 0x30 {
+			t.Fatalf("requests %x address %x", device.requests, device.address)
+		}
 	}
 }

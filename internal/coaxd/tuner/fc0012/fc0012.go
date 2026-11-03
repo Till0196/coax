@@ -14,6 +14,7 @@ package fc0012
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/Till0196/coax/pkg/i2c"
 )
@@ -45,6 +46,13 @@ type Config struct {
 	// LoopThrough leaves the aerial loop-through output driven, for a board that
 	// daisy-chains a second tuner off this one.
 	LoopThrough bool
+	// DisableFixedClockOut leaves the PLL clock-out control bit clear.
+	DisableFixedClockOut bool
+	// CalibrateRSSI runs the RSSI calibration before programming the PLL.
+	CalibrateRSSI bool
+	// VCOLatchDelay settles calibration before its final register write.
+	// Zero uses the 10ms wait after that write.
+	VCOLatchDelay time.Duration
 }
 
 // Tuner is an FC0012 reached through the demodulator in front of it.

@@ -93,6 +93,31 @@ func (demod *Demod) Tune(tuner Tuner, setParams, finish func() error) error {
 	return demod.WritePairs(resume)
 }
 
+// ResetTuner pulses the terrestrial RF control while preserving its other bits.
+func (demod *Demod) ResetTuner() error {
+	value, err := demod.ReadRegister(0x1c)
+	if err != nil {
+		return err
+	}
+	if err := demod.WriteRegister(0x1c, value|0x30); err != nil {
+		return err
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := demod.WriteRegister(0x1c, (value|0x20)&^0x10); err != nil {
+		return err
+	}
+	time.Sleep(10 * time.Millisecond)
+	return nil
+}
+
+// SetFC0012Band selects the terrestrial AGC range for the RF frequency in Hz.
+func (demod *Demod) SetFC0012Band(frequency uint32) error {
+	if frequency <= 260_999_000 {
+		return demod.WriteRegisterMask(0x1e, 0x20, 0x30)
+	}
+	return demod.WriteRegisterMask(0x1e, 0x30, 0x30)
+}
+
 // ReadRegisters reads a run of registers.
 func (demod *Demod) ReadRegisters(register byte, length int) ([]byte, error) {
 	demod.mu.Lock()
@@ -104,7 +129,7 @@ func (demod *Demod) readRegisters(register byte, length int) ([]byte, error) {
 	if length <= 0 {
 		return nil, fmt.Errorf("TC90522 register read length %d is invalid", length)
 	}
-	data, err := i2c.WriteRead(demod.bus, demod.address, []byte{register}, length)
+	data, err := i2c.ReadRegisters(demod.bus, demod.address, register, length)
 	if err != nil {
 		return nil, err
 	}

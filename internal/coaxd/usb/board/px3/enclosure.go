@@ -397,6 +397,18 @@ func newFrontEnds(control boardControl, wired wiring) (frontEnds, error) {
 	if err := ends.configureDemods(control, wired.afterRF); err != nil {
 		return frontEnds{}, err
 	}
+	if tuner, ok := ends.tunerT.(*fc0012Tuner); ok && tuner.w3 {
+		if err := control.SetGPIO(0, 0x01); err != nil {
+			return frontEnds{}, err
+		}
+		if err := ends.demodT.Tune(tc90522.TunerFC0012, func() error {
+			return tuner.acquire(ends.demodT, 773_143_000)
+		}, func() error {
+			return ends.configureDemods(control, wired.afterTune[terrestrial])
+		}); err != nil {
+			return frontEnds{}, fmt.Errorf("initialize W3U2/W3U3 RF acquisition: %w", err)
+		}
+	}
 	return ends, nil
 }
 

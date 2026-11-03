@@ -126,9 +126,15 @@ type frontendTrace struct {
 	selected     uint16
 	failRegister byte
 	failWrite    []byte
+	gpio         [][2]byte
+	fcSelected   byte
+	fcUnready    bool
 }
 
-func (*frontendTrace) SetGPIO(byte, byte) error   { return errors.New("unexpected GPIO access") }
+func (bus *frontendTrace) SetGPIO(value, mask byte) error {
+	bus.gpio = append(bus.gpio, [2]byte{value, mask})
+	return nil
+}
 func (*frontendTrace) SetGPIOEx(byte, byte) error { return errors.New("unexpected GPIO access") }
 func (bus *frontendTrace) I2C(byte) i2c.Bus       { return bus }
 func (bus *frontendTrace) Write(address byte, data []byte) error {
@@ -139,11 +145,27 @@ func (bus *frontendTrace) Write(address byte, data []byte) error {
 	if len(data) >= 4 && bytes.Equal(data[:2], []byte{0xfe, 0xce}) {
 		bus.selected = uint16(data[2])<<8 | uint16(data[3])
 	}
+	if len(data) == 3 && bytes.Equal(data[:2], []byte{0xfe, 0xc6}) {
+		bus.fcSelected = data[2]
+	}
 	return nil
 }
 
 func (*frontendTrace) Read(byte, int) ([]byte, error) { return nil, errors.New("unexpected read") }
 func (bus *frontendTrace) WriteRead(_ byte, write []byte, length int) ([]byte, error) {
+	if bytes.Equal(write, []byte{0xfe, 0xc7}) {
+		out := make([]byte, length)
+		if bus.fcSelected == 0x0e {
+			out[0] = 0x60
+			if bus.fcUnready {
+				out[0] = 0x20
+			}
+		}
+		return out, nil
+	}
+	if len(write) == 1 {
+		return make([]byte, length), nil
+	}
 	if !bytes.Equal(write, []byte{0xfe, 0xcf}) {
 		return nil, errors.New("unexpected register read")
 	}
@@ -152,6 +174,59 @@ func (bus *frontendTrace) WriteRead(_ byte, write []byte, length int) ([]byte, e
 		copy(out, []byte{0, 0x31, 1, 0})
 	}
 	return out, nil
+}
+
+func TestW3RFCalibrationRetriesAreBounded(t *testing.T) {
+	for _, failReset := range []bool{false, true} {
+		bus := &frontendTrace{fcUnready: true}
+		if failReset {
+			bus.failRegister = 0x1c
+		}
+		rf, err := newW3FC0012(bus, 0x30)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = rf.(*fc0012Tuner).acquire(tc90522.New(bus, 0x30, false), 557_142_857)
+		if failReset && !errors.Is(err, errFrontendTransfer) || !failReset && err != nil {
+			t.Fatalf("reset failure=%t: %v", failReset, err)
+		}
+		attempts, initializations := 0, 0
+		for _, write := range bus.writes {
+			if bytes.Equal(write, []byte{0x30, 0xfe, 0xc6, 1, 2}) {
+				attempts++
+			}
+			if bytes.Equal(write, []byte{0x30, 0xfe, 0xc6, 0x15, 4}) {
+				initializations++
+			}
+		}
+		want := 4
+		if failReset {
+			want = 1
+		}
+		if attempts != want || initializations != want {
+			t.Fatalf("RF attempts=%d initializations=%d; want %d", attempts, initializations, want)
+		}
+	}
+}
+
+func TestW3ManualGainSurvivesRFReinitialization(t *testing.T) {
+	bus := &frontendTrace{fcUnready: true}
+	rf, err := newW3FC0012(bus, 0x30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tuner := rf.(*fc0012Tuner)
+	if err := tuner.SetLNAGain(23); err != nil {
+		t.Fatal(err)
+	}
+	if err := tuner.acquire(tc90522.New(bus, 0x30, false), 557_142_857); err != nil {
+		t.Fatal(err)
+	}
+	for _, write := range bus.writes {
+		if len(write) == 5 && bytes.Equal(write[:4], []byte{0x30, 0xfe, 0xc6, 0x13}) && write[4] != 0x10 {
+			t.Fatalf("manual gain replaced: % x", write)
+		}
+	}
 }
 
 func TestDemodulatorFailureStopsBeforeRFInitialization(t *testing.T) {
@@ -197,7 +272,7 @@ func TestDemodulatorPreparationPrecedesRFInitialization(t *testing.T) {
 			[]byte{0xfe, 0xc6, 1, 5}, []byte{0x0f, 0x34}, []byte{0x30, 0x0f, 0x34}},
 		{"W3U3", wiringFor(0x0005),
 			w3Setup,
-			[]byte{0xfe, 0xc6, 1, 5}, []byte{0x0f, 0x34}, []byte{0x30, 0x0f, 0x34}},
+			[]byte{0xfe, 0xc6, 1, 5}, []byte{0x0f, 0x34, 0x0f, 0x34}, []byte{0x30, 0x23, 0x4c}},
 		{"V2/0", v2WiringAt(0),
 			v2Setup,
 			[]byte{0xfe, 0xce, 0, 6, 0x48}, []byte{0x0e, 0x77, 0x0f, 0x13}, []byte{0x22, 0x04, 0x02}},
@@ -243,6 +318,22 @@ func TestDemodulatorPreparationPrecedesRFInitialization(t *testing.T) {
 			}
 			if last := bus.writes[len(bus.writes)-1]; !bytes.Equal(last, one.last) {
 				t.Fatalf("last initialization write = % x, want % x", last, one.last)
+			}
+			if one.name == "W3U3" {
+				if len(bus.gpio) != 1 || bus.gpio[0] != [2]byte{0, 1} {
+					t.Fatalf("initial RF LNA state: %v", bus.gpio)
+				}
+				var clock byte
+				for _, write := range bus.writes {
+					if len(write) == 5 && bytes.Equal(write[:4], []byte{0x30, 0xfe, 0xc6, 6}) {
+						clock = write[4]
+					}
+				}
+				if clock != 0x8a {
+					t.Fatalf("initial 773143kHz clock setting = %02x", clock)
+				}
+			} else if len(bus.gpio) != 0 {
+				t.Fatalf("unexpected RF GPIO operations: %v", bus.gpio)
 			}
 			if one.name == "S3U2" {
 				var pulses []byte

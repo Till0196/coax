@@ -30,14 +30,104 @@ var lnaSteps = [24]byte{
 const LNASteps = len(lnaSteps)
 
 // SetLNAGain moves the low-noise amplifier, 0 for the least gain and 23 for the
-// most. The board starts at the top of the ladder, so this only ever turns gain
-// down, for an aerial strong enough to overload the front end.
+// most.
 func (tuner *Tuner) SetLNAGain(step int) error {
 	if step < 0 || step >= LNASteps {
 		return fmt.Errorf("the FC0012's amplifier has %d steps, 0 to %d, not %d",
 			LNASteps, LNASteps-1, step)
 	}
 	return tuner.write(registerLNAGain, lnaSteps[step])
+}
+
+// AdjustGain takes one AGC sample and moves between the four acquisition gain
+// settings. It reports a change so the caller can check demodulator lock again.
+func (tuner *Tuner) AdjustGain() (bool, error) {
+	if err := tuner.write(registerAGCReading, 0); err != nil {
+		return false, err
+	}
+	sample, err := tuner.read(registerAGCReading)
+	if err != nil {
+		return false, err
+	}
+	setting, err := tuner.read(registerLNAGain)
+	if err != nil {
+		return false, err
+	}
+	control, err := tuner.read(0x0d)
+	if err != nil {
+		return false, err
+	}
+	if control&0x10 == 0 {
+		if err := tuner.write(0x10, 0); err != nil {
+			return false, err
+		}
+	}
+	if _, err := tuner.read(0x10); err != nil {
+		return false, err
+	}
+	reading := int(sample&0x1f)*2 + [8]int{10, 8, 6, 4, 2, 0, 0, 0}[sample>>5]
+	var next byte
+	adjust := false
+	switch setting & 0x1f {
+	case 0x02:
+		if reading <= 54 {
+			return false, nil
+		}
+		next, adjust = 0x0a, true
+	case 0x0a:
+		switch {
+		case reading > 56:
+			next = 0x14
+		case reading < 32:
+			next, adjust = 0x02, true
+		default:
+			return false, nil
+		}
+	case 0x14:
+		switch {
+		case reading > 54:
+			next = 0x10
+		case reading < 42:
+			next, adjust = 0x0a, true
+		default:
+			return false, nil
+		}
+	case 0x10:
+		if reading >= 52 {
+			return false, nil
+		}
+		next = 0x14
+	default:
+		next = 0x10
+	}
+	control, err = tuner.read(0x0d)
+	if err != nil {
+		return false, err
+	}
+	if err := tuner.write(0x0d, control&^0x10); err != nil {
+		return false, err
+	}
+	if adjust {
+		if err := tuner.write(0x10, 0); err != nil {
+			return false, err
+		}
+		value, err := tuner.read(0x10)
+		if err != nil {
+			return false, err
+		}
+		control, err = tuner.read(0x0d)
+		if err != nil {
+			return false, err
+		}
+		if err := tuner.write(0x0d, control|0x10); err != nil {
+			return false, err
+		}
+		if err := tuner.write(0x10, value-3); err != nil {
+			return false, err
+		}
+	}
+	err = tuner.write(registerLNAGain, next)
+	return err == nil, err
 }
 
 // GainStepsDB is the whole ladder in decibels, least gain first, generated from
