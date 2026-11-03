@@ -337,6 +337,13 @@ func (bus tunerBus) captrim(address byte, lo4 uint16, key uint32, start, step, t
 	return best, diff, true, err
 }
 
+// dcTrimKeeper is a master that keeps the DiB0090's DC offset trims while the
+// chip is powered, so that a reset tuner does without its DC calibration.
+type dcTrimKeeper interface {
+	RecallDCTrim() (uint32, bool, error)
+	RememberDCTrim(trims uint32) error
+}
+
 func (bus tunerBus) Write(address byte, data []byte) error {
 	return bus.through(address, func() error { return bus.parent.Write(address, data) })
 }

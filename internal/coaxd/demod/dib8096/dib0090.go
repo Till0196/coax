@@ -913,8 +913,54 @@ func (state *tuner) reset() error {
 
 	// enable iq-offset-calibration and wbd-calibration when tuning next time
 	state.calibrate = dcCal | wbdCal | tempCal
+	state.recallDCTrim()
 
 	return state.failure.err
+}
+
+// dcTrimKeeper gives the master that keeps the DC offset trims, if there is one.
+func (state *tuner) dcTrimKeeper() dcTrimKeeper {
+	bus, ok := state.bus.(tunerBus)
+	if !ok {
+		return nil
+	}
+	keeper, _ := bus.parent.(dcTrimKeeper)
+	return keeper
+}
+
+// recallDCTrim sets the DC offset trims a calibration since the chip was
+// powered found, as the DC calibration leaves them, and skips the calibration.
+// Linux calibrates once, when the tuner is attached; this tuner is reset each
+// time it is opened.
+func (state *tuner) recallDCTrim() {
+	keeper := state.dcTrimKeeper()
+	if keeper == nil || state.failure.err != nil {
+		return
+	}
+	trims, ok, err := keeper.RecallDCTrim()
+	if err != nil {
+		state.failure.record(fmt.Errorf("recall DiB0090 DC offset trims: %w", err))
+		return
+	}
+	if !ok {
+		return
+	}
+	state.bb6, state.bb7 = uint16(trims>>16), uint16(trims)
+	state.writeReg(0x06, state.bb6)
+	state.writeReg(0x07, state.bb7&^0x0008)
+	state.writeReg(0x1f, 0x7)
+	state.calibrate &^= dcCal
+}
+
+// rememberDCTrim keeps the trims the DC calibration found.
+func (state *tuner) rememberDCTrim() {
+	keeper := state.dcTrimKeeper()
+	if keeper == nil || state.failure.err != nil {
+		return
+	}
+	if err := keeper.RememberDCTrim(uint32(state.bb6)<<16 | uint32(state.bb7)); err != nil {
+		state.failure.record(fmt.Errorf("remember DiB0090 DC offset trims: %w", err))
+	}
 }
 
 // steps is the steps() macro of the DC calibration.
@@ -1055,6 +1101,7 @@ func (state *tuner) dcOffsetCalibration() int {
 		state.writeReg(0x1f, 0x7)
 		state.tuneState = tunerStart // reset done -> real tuning can now begin
 		state.calibrate &^= dcCal
+		state.rememberDCTrim()
 	}
 	return ret
 }

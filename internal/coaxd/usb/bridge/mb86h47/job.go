@@ -50,7 +50,8 @@ const (
 //	+0x08  the transmission parameters the demodulator locked with (TMCC)
 //
 // then a header: tableMagic and the entry a new frequency takes when none is
-// free. Another build's header means its table, which is cleared.
+// free. Another build's header means its table, which is cleared. After the
+// header, dcTrimMagic marks the DiB0090's DC offset trims in the next word.
 const (
 	tableBase    = 0xa2800
 	tableEntry   = 16
@@ -58,6 +59,8 @@ const (
 	tableHeader  = tableBase + tableEntries*tableEntry
 	tableNext    = tableHeader + 4
 	tableMagic   = 0x7ab1e002
+	dcTrimAt     = tableHeader + 8
+	dcTrimMagic  = 0xdc7a1d00
 
 	// Bits of an entry's second word.
 	tableTMCC    = 1 << 8
@@ -78,6 +81,7 @@ func (bridge *Bridge) tableCheckLocked() {
 		bridge.writeBlock(core1Base+tableBase+offset, empty)
 	}
 	bridge.write32(core1Base+tableNext, 0)
+	bridge.write32(core1Base+dcTrimAt, 0)
 	bridge.write32(core1Base+tableHeader, tableMagic)
 }
 
@@ -266,4 +270,28 @@ func (bridge *Bridge) RememberTMCC(address byte, key uint32) (TMCC, bool, error)
 		return TMCC{}, false, err
 	}
 	return TMCC{results[1], results[2]}, results[0] != 0, nil
+}
+
+// RecallDCTrim gives the DiB0090's DC offset trims kept by RememberDCTrim.
+func (bridge *Bridge) RecallDCTrim() (uint32, bool, error) {
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	bridge.err = nil
+	kept := make([]byte, 8)
+	bridge.readBlock(core1Base+dcTrimAt, kept)
+	if bridge.err != nil {
+		return 0, false, bridge.err
+	}
+	return binary.BigEndian.Uint32(kept[4:]), binary.BigEndian.Uint32(kept) == dcTrimMagic, nil
+}
+
+// RememberDCTrim keeps the DiB0090's DC offset trims while the chip is powered.
+func (bridge *Bridge) RememberDCTrim(trims uint32) error {
+	bridge.mu.Lock()
+	defer bridge.mu.Unlock()
+	bridge.err = nil
+	bridge.write32(core1Base+dcTrimAt, 0)
+	bridge.write32(core1Base+dcTrimAt+4, trims)
+	bridge.write32(core1Base+dcTrimAt, dcTrimMagic)
+	return bridge.err
 }

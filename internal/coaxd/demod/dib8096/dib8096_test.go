@@ -766,6 +766,75 @@ func TestTuneAfterFailedSearchWithoutSignal(t *testing.T) {
 	}
 }
 
+// keepingChip is the fake chip behind a master that keeps the DC offset trims.
+type keepingChip struct {
+	*fakeChip
+	trims uint32
+	kept  bool
+}
+
+func (chip *keepingChip) RecallDCTrim() (uint32, bool, error) { return chip.trims, chip.kept, nil }
+
+func (chip *keepingChip) RememberDCTrim(trims uint32) error {
+	chip.trims, chip.kept = trims, true
+	return nil
+}
+
+// dcCalibrated reports whether the tuner writes show a DC calibration: it
+// turns the offset negative (register 0x1f = 4) on every step.
+func dcCalibrated(chip *fakeChip) bool {
+	for _, w := range chip.tunerWrites {
+		if w.register == 0x1f && w.value == 0x4 {
+			return true
+		}
+	}
+	return false
+}
+
+// The DC offset trims the first open calibrated are set again by the next,
+// which does without the calibration.
+func TestDCTrimsKeptAcrossOpens(t *testing.T) {
+	chip := &keepingChip{fakeChip: lockedChip()}
+	open := func() (*Demod, time.Duration) {
+		clock := &fakeClock{now: time.Unix(1000, 0)}
+		demod := New(chip)
+		demod.setTiming(clock.Now, clock.Sleep, 5*time.Second)
+		if err := demod.Initialize(); err != nil {
+			t.Fatal(err)
+		}
+		start := clock.now
+		chip.queues[1284] = []uint16{0x1, 0x0, 0x2}
+		if err := demod.Tune(473142857); err != nil {
+			t.Fatal(err)
+		}
+		return demod, clock.now.Sub(start)
+	}
+
+	chip.tunerWrites = nil
+	first, calibrating := open()
+	if !dcCalibrated(chip.fakeChip) || !chip.kept {
+		t.Fatalf("first open: calibrated %v, kept %v; want both", dcCalibrated(chip.fakeChip), chip.kept)
+	}
+	if want := uint32(first.tuner.bb6)<<16 | uint32(first.tuner.bb7); chip.trims != want {
+		t.Errorf("kept %#08x, want %#08x", chip.trims, want)
+	}
+
+	chip.tunerWrites = nil
+	second, kept := open()
+	if dcCalibrated(chip.fakeChip) {
+		t.Error("the second open calibrated again")
+	}
+	if second.tuner.bb6 != first.tuner.bb6 || second.tuner.bb7 != first.tuner.bb7 {
+		t.Errorf("trims %#04x %#04x, want %#04x %#04x", second.tuner.bb6, second.tuner.bb7, first.tuner.bb6, first.tuner.bb7)
+	}
+	if got := chip.tunerRegisters[0x06]; got != first.tuner.bb6 {
+		t.Errorf("register 0x06 = %#04x, want %#04x", got, first.tuner.bb6)
+	}
+	if kept >= calibrating {
+		t.Errorf("tune took %v with kept trims, %v calibrating", kept, calibrating)
+	}
+}
+
 // searched reports whether the search was programmed (P_search_param_select,
 // 357) since the writes were last cleared.
 func searched(chip *fakeChip) bool {
