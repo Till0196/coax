@@ -21,6 +21,7 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/bda/graph"
 	"github.com/Till0196/coax/internal/coaxd/bda/mode"
 	"github.com/Till0196/coax/internal/coaxd/bda/vendors/asicen"
+	"github.com/Till0196/coax/internal/coaxd/bda/vendors/siano"
 	channels "github.com/Till0196/coax/internal/coaxd/tuning"
 	"time"
 )
@@ -69,11 +70,12 @@ type Measurement struct {
 type Status struct {
 	Locked bool
 	Names  []string
+	// CNR is a vendor measurement in dB when the driver exposes one.
+	CNR Measurement
 	// Strength is the input level in dBm, as the driver reports it.
 	Strength Measurement
-	// Quality is the driver's own 0..100 figure. BDA exposes no C/N ratio and
-	// this is not one, so it is passed through as a percentage rather than
-	// dressed up as decibels.
+	// Quality is the driver's own 0..100 figure, passed through as a percentage
+	// separately from any C/N measurement a vendor interface offers.
 	Quality Measurement
 }
 
@@ -276,6 +278,17 @@ func (device *Device) Status() (Status, error) {
 		Names:  []string{"graph_running", fmt.Sprintf("data=%d", written)},
 	}
 	device.readSignalStatistics(&status)
+	// A Siano driver's own strength is no level in dBm; its statistics carry
+	// the SNR, shown as the C/N, and the in-band power.
+	if path, ok := siano.ControlPath(device.tuner.Display); ok {
+		status.Strength = Measurement{}
+		if status.Locked && device.session.System() == "ISDBT" {
+			if reading, err := siano.Read(path); err == nil {
+				status.CNR = Measurement(reading.SNR)
+				status.Strength = Measurement(reading.Power)
+			}
+		}
+	}
 	return status, nil
 }
 

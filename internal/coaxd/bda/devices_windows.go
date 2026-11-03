@@ -13,6 +13,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/bda/filters"
 	"github.com/Till0196/coax/internal/coaxd/bda/vendors/asicen"
+	"github.com/Till0196/coax/internal/coaxd/bda/vendors/siano"
 )
 
 // Found is one BDA network tuner the system is offering, seen without a graph
@@ -64,6 +65,9 @@ func Devices() ([]Found, error) {
 		}
 		vendor := tuner.Vendor()
 		deliveries := asicen.Deliveries(vendor)
+		if deliveries == nil {
+			deliveries = siano.Deliveries(tuner.Display)
+		}
 		found = append(found, Found{
 			Name:       tuner.Name,
 			Selector:   selector,

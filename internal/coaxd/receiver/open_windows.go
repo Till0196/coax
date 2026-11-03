@@ -91,6 +91,7 @@ func (device *windowsBDADevice) Status() (Status, error) {
 	return Status{
 		Locked:   status.Locked,
 		Names:    status.Names,
+		CNR:      Measurement(status.CNR),
 		Strength: Measurement(status.Strength),
 		Quality:  Measurement(status.Quality),
 	}, err
