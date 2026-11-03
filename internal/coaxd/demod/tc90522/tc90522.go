@@ -251,10 +251,14 @@ func (demod *Demod) SetAGCS(on bool) error {
 	return demod.WritePairs(pairs)
 }
 
-// TMCCTSIDS reads one of the twelve TSIDs the TMCC carries.
+// TMCCSlots is how many streams the TMCC lists, by relative number; a slot
+// carrying none reads 0xffff, or 0 before the block has been received.
+const TMCCSlots = 8
+
+// TMCCTSIDS reads the TSID in one slot of the TMCC.
 func (demod *Demod) TMCCTSIDS(index int) (uint16, error) {
-	if index < 0 || index >= 12 {
-		return 0, fmt.Errorf("TC90522 TMCC slot %d is outside 0..11", index)
+	if index < 0 || index >= TMCCSlots {
+		return 0, fmt.Errorf("TC90522 TMCC slot %d is outside 0..%d", index, TMCCSlots-1)
 	}
 	data, err := demod.ReadRegisters(byte(0xce+index*2), 2)
 	if err != nil {
@@ -279,14 +283,17 @@ func (demod *Demod) SetTSIDS(tsid uint16) error {
 
 // SelectStreamS tells the satellite core which stream to demultiplex, waiting
 // until it has settled. Values below 12 name a TMCC slot rather than a TSID and
-// are resolved once the TMCC block has been received.
+// are resolved once the TMCC block has been received; the TMCC has eight.
 func (demod *Demod) SelectStreamS(streamID uint16) error {
 	tsid := streamID
 	if streamID < 12 {
+		if streamID >= TMCCSlots {
+			return fmt.Errorf("stream %d names a TMCC slot, and the TMCC has %d", streamID, TMCCSlots)
+		}
 		var err error
 		for attempt := 0; attempt < 100; attempt++ {
 			tsid, err = demod.TMCCTSIDS(int(streamID))
-			if err == nil && tsid != 0 {
+			if err == nil && tsid != 0 && tsid != 0xffff {
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
@@ -294,7 +301,7 @@ func (demod *Demod) SelectStreamS(streamID uint16) error {
 		if err != nil {
 			return fmt.Errorf("read TMCC slot %d: %w", streamID, err)
 		}
-		if tsid == 0 {
+		if tsid == 0 || tsid == 0xffff {
 			return fmt.Errorf("TMCC slot %d carries no stream", streamID)
 		}
 	}
