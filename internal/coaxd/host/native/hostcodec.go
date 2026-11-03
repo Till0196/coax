@@ -24,6 +24,7 @@ var hostErrors = []struct {
 	{"busy", device.ErrTunerBusy},
 	{"range", receiver.ErrOutOfRange},
 	{"gone", pool.ErrGone},
+	{"nocard", pool.ErrNoCardReader},
 }
 
 const codeMark = "\x00"

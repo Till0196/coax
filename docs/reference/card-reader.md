@@ -24,10 +24,15 @@
 | `isdb2056` | DTV02A-1T1S-U、ISDB2056N、PX-M1UR | IT930xのUART | 同上 |
 | `s1ur` | PX-S1UR、DTV03A-1TU | IT930xのUART | 同上 |
 | `px3` | PX-S3U / S3U2 / W3U2 / W3U3 / W3U3 V2 | ASIE5606（ブリッジのI2C上）| T=1ブロック |
+| `bda` | PX-S3U / S3U2 / W3U2 / W3U3 / W3U3 V2、PX-W3PE / W3PE V2 / Q3PE | 純正ASICENドライバーのカードプロパティ | APDU |
 | `fsusb2` | KTV-FSUSB2 | EM2874のカードインタフェース | T=1ブロック |
 | `fsusb2i` | KTV-FSMINI、KTV-FSUSB2/V3（K1212〜）| IT9175内蔵のカードインタフェース | T=1ブロック |
 | `us3pout` | US-3POUT | EM287xのカードインタフェース | T=1ブロック |
 | `cech-zd1j` | Sony CECH-ZD1 J | MB86H47A内蔵のカードインタフェース（ブリッジのレジスタ越し）| T=1ブロック |
+
+PX-W3U2、W3U3、W3U3 V2 は、2つの USB ブリッジに対してカードスロットは筐体に1つです。
+PC/SC の一覧では、`px3` / `bda` とも同じ筐体の候補を1つのリーダーにまとめます。
+USB トポロジーから筐体を特定できない場合は、別の機器を誤ってまとめないよう候補を個別に残します。
 
 デバイスを開くのにファームウェアが必要なデバイスは、カードを使うときにもファームウェアが必要です。
 `px4`系と`fsusb2i`がこれにあたります（置き場所は[firmware.md](../setup/firmware.md)）。

@@ -12,6 +12,7 @@ import (
 	"github.com/Till0196/coax/pkg/win32"
 
 	"github.com/Till0196/coax/internal/coaxd/bda/filters"
+	"github.com/Till0196/coax/internal/coaxd/bda/vendors/asicen"
 )
 
 // Found is one BDA network tuner the system is offering, seen without a graph
@@ -23,6 +24,14 @@ type Found struct {
 	// by. It is what Open takes, and unlike the friendly name it stays unique
 	// when a second identical card is installed.
 	Selector string
+	// Deliveries are known from vendor filter identities; nil means unknown.
+	Deliveries []string
+	// Model is the product a PLEX tuner belongs to, such as "PX-W3U3 V2", and
+	// USBProduct its USB product ID, 0 for a card.
+	Model      string
+	USBProduct uint16
+	// CardSlot marks the tuner its enclosure's card is reached through.
+	CardSlot bool
 }
 
 // Devices lists the BDA network tuners without opening one.
@@ -53,7 +62,16 @@ func Devices() ([]Found, error) {
 			// No device path: the friendly name has to serve as both.
 			selector = tuner.Name
 		}
-		found = append(found, Found{Name: tuner.Name, Selector: selector})
+		vendor := tuner.Vendor()
+		deliveries := asicen.Deliveries(vendor)
+		found = append(found, Found{
+			Name:       tuner.Name,
+			Selector:   selector,
+			Deliveries: deliveries,
+			Model:      asicen.Model(vendor),
+			USBProduct: asicen.USBProduct(vendor),
+			CardSlot:   asicen.CarriesCard(vendor),
+		})
 	}
 	return found, nil
 }

@@ -18,6 +18,8 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/bda/filters"
 	"github.com/Till0196/coax/internal/coaxd/bda/sink"
 	"github.com/Till0196/coax/internal/coaxd/bda/tuning"
+	"github.com/Till0196/coax/internal/coaxd/bda/vendors"
+	"github.com/Till0196/coax/internal/coaxd/bda/vendors/asicen"
 	"github.com/Till0196/coax/internal/coaxd/bda/vendors/dd"
 )
 
@@ -55,13 +57,26 @@ type Options struct {
 	// caller that tunes the chips itself. A driver works through a request
 	// asynchronously and can land on its chips after the caller has.
 	Untuned bool
+	// StreamAt reads the TSID in a slot of the transmission control block,
+	// for a driver that selects a satellite stream by TSID alone. Nil for
+	// other drivers.
+	StreamAt func(slot int) (uint16, error)
 }
 
 // Build builds the filter graph, trying each network provider in turn. On
 // success the card is held; Session.Close lets go of it again.
 func Build(options Options) (*Session, error) {
 	var failures []string
-	for _, provider := range networkProviders(ddNetworkProfile(options.Tuner, options.Profile).Delivery) {
+	providerProfile := ddNetworkProfile(options.Tuner, options.Profile)
+	if asicen.Is(options.Tuner.Vendor()) {
+		providerProfile = asicen.Profile(providerProfile)
+	}
+	providers := networkProviders(providerProfile.Delivery)
+	if asicen.Is(options.Tuner.Vendor()) {
+		// This driver's tuning space is rejected by the Microsoft provider.
+		providers = providers[1:]
+	}
+	for _, provider := range providers {
 		session, err := buildWith(provider, options)
 		if err == nil {
 			session.card = options.Card
@@ -92,6 +107,17 @@ var ErrTunerHeld = errors.New("this tuner is already in use; if nothing else has
 func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	tunerMoniker, captureMonikers := options.Tuner, options.Captures
 	profile := options.Profile
+	plex := asicen.Is(tunerMoniker.Vendor())
+	if plex {
+		profile = asicen.Profile(profile)
+		matching := make([]filters.Moniker, 0, len(captureMonikers))
+		for _, candidate := range captureMonikers {
+			if asicen.MatchCapture(tunerMoniker.Vendor(), candidate.Vendor()) {
+				matching = append(matching, candidate)
+			}
+		}
+		captureMonikers = matching
+	}
 	networkProfile := ddNetworkProfile(tunerMoniker, profile)
 	graph, err := createGraph()
 	if err != nil {
@@ -122,7 +148,7 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	// before anything is connected: it validates a tune request against the
 	// tuning space it already has, so the real one cold answers E_INVALIDARG.
 	// The real channel goes on once the graph runs (below).
-	space, err := primeTuningSpace(tunerControl, networkProfile, networkTypeFor(networkProfile.Delivery))
+	space, err := primeTuningSpace(tunerControl, networkProfile, networkTypeFor(networkProfile.Delivery), plex)
 	if err != nil {
 		return nil, fmt.Errorf("prime BDA tuning space: %w", err)
 	}
@@ -131,6 +157,25 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	tunerFilter, err := bindBaseFilter(tunerMoniker.Moniker)
 	if err != nil {
 		return nil, fmt.Errorf("bind BDA tuner %q: %w", tunerMoniker.Name, err)
+	}
+	var plexControl *vendors.FilterProperties
+	var plexTransport *asicen.Control
+	if plex {
+		plexControl, err = vendors.PropertySet(tunerFilter)
+		if err != nil {
+			tunerFilter.Release()
+			return nil, err
+		}
+		defer func() {
+			if !success {
+				plexControl.Release()
+			}
+		}()
+		plexTransport, err = asicen.Open(plexControl)
+		if err != nil {
+			tunerFilter.Release()
+			return nil, err
+		}
 	}
 	// The tuner filter outlives this function on success: its connected pins
 	// carry the card's vendor properties.
@@ -203,16 +248,23 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 	// Best-effort, but the error is kept for the run failure's message.
 	informationErr := attachTransportInformation(graph, tee)
 
-	// A capture graph runs without a clock: left alone the graph manager asks the
-	// filters for one at start, and no BDA filter offers one, so that search ends
-	// in E_NOINTERFACE and the graph refuses to run.
-	if err := clearGraphClock(graph); err != nil {
-		return nil, fmt.Errorf("run the graph without a clock: %w", err)
+	// Most capture drivers run without a clock. ASICEN instead requires the
+	// graph's default clock; clearing it makes Run fail with ERROR_GEN_FAILURE.
+	if !plex {
+		if err := clearGraphClock(graph); err != nil {
+			return nil, fmt.Errorf("run the graph without a clock: %w", err)
+		}
 	}
 
 	control, err := queryMediaControl(graph)
 	if err != nil {
 		return nil, fmt.Errorf("query DirectShow media control: %w", err)
+	}
+	if plex && !options.Untuned {
+		if err := applyTuneProfile(tunerControl, space, profile); err != nil {
+			control.Release()
+			return nil, fmt.Errorf("prepare ASICEN channel: %w", err)
+		}
 	}
 	if err := control.Run(); err != nil {
 		control.Release()
@@ -236,7 +288,7 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 			return nil, fmt.Errorf("DiSEqC: %w", err)
 		}
 	}
-	if !options.Untuned {
+	if !options.Untuned && !plex {
 		var tuneErr error
 		if dd.Is(tunerMoniker.Vendor()) {
 			tuneErr = applyDDTuneProfile(tunerFilter, profile)
@@ -250,6 +302,17 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 		}
 	}
 
+	if plexTransport != nil && !options.Untuned {
+		stream, err := plexStream(options)
+		if err == nil {
+			err = plexTransport.Select(stream)
+		}
+		if err != nil {
+			control.Stop()
+			control.Release()
+			return nil, err
+		}
+	}
 	// A graph can abort after Run returns, so the queue is read here and again on
 	// every status check.
 	events, err := queryMediaEvent(graph)
@@ -261,14 +324,35 @@ func buildWith(candidate networkProvider, options Options) (*Session, error) {
 
 	success = true
 	return &Session{
-		system:        profile.System,
-		graph:         graph,
-		control:       control,
-		events:        events,
-		statistics:    statistics,
-		tuner:         tunerFilter,
-		writer:        stream,
-		capture:       capture,
-		captureFilter: captureFilter,
+		system:         options.Profile.System,
+		graph:          graph,
+		control:        control,
+		events:         events,
+		statistics:     statistics,
+		plex:           plexTransport,
+		plexProperties: plexControl,
+		tuner:          tunerFilter,
+		writer:         stream,
+		capture:        capture,
+		captureFilter:  captureFilter,
 	}, nil
+}
+
+// plexStream is the TSID to hand an ASICEN driver, which takes nothing else. A
+// satellite stream below 12 is a slot of the transmission control block, as
+// the other backends read it, and one not named is slot zero; either is looked
+// up once the tune has locked.
+func plexStream(options Options) (int32, error) {
+	stream := options.Profile.StreamID
+	if options.Profile.Delivery != tuning.DeliverySatellite || options.StreamAt == nil || stream >= 12 {
+		return stream, nil
+	}
+	if stream < 0 {
+		stream = 0
+	}
+	tsid, err := options.StreamAt(int(stream))
+	if err != nil {
+		return 0, err
+	}
+	return int32(tsid), nil
 }

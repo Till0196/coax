@@ -1,8 +1,6 @@
 // Copyright 2026 Till0196
 // SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
 
-//go:build windows
-
 // Package vendors holds what this host knows about the private interfaces of
 // the cards it drives on Windows: the property sets, item numbers, model tables
 // and what the values mean. The bda package beside it knows how Windows tunes

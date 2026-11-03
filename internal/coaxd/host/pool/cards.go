@@ -31,6 +31,7 @@ func (c cardSource) Boards() ([]usbcard.Attached, error) {
 			ID:       one.detected.USB,
 			Serial:   one.detected.Serial,
 			Port:     one.detected.Port,
+			CardSlot: one.detected.CardSlot,
 		})
 	}
 	return boards, nil

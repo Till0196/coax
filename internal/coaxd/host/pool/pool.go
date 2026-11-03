@@ -97,6 +97,10 @@ type Detected struct {
 	Exclusive bool
 	// Tuners is the layout as far as it can be told without opening the device.
 	Tuners []device.TunerInfo
+	// CardSlot marks the device a card slot is reached through, for a backend
+	// whose devices carry one only now and then: a PLEX enclosure on its BDA
+	// driver is four tuners and one slot.
+	CardSlot bool
 }
 
 // Registry is where the pool finds hardware, named as an interface so that the

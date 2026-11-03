@@ -65,6 +65,9 @@ type Attached struct {
 	ID       usbio.ID
 	Serial   string
 	Port     string
+	// CardSlot marks a board of a backend in cardSlotBackends as one with a
+	// slot.
+	CardSlot bool
 }
 
 // Identity is what tells one attached board from another across a replug.
@@ -140,6 +143,13 @@ var slotBackends = map[string]slotNaming{
 	"fsusb2i":   {"KEIAN", "KTV-FSMINI"},
 	"us3pout":   {"DigiBest", "US-3POUT"},
 	"cech-zd1j": {"Sony", "CECH-ZD1 J"},
+}
+
+// cardSlotBackends are the backends whose boards carry a slot only when the
+// source says so: a PLEX enclosure on its BDA driver is listed tuner by tuner,
+// and one of them is the way to its slot.
+var cardSlotBackends = map[string]slotNaming{
+	"bda": {"PLEX", "PX-S3U series"},
 }
 
 // slotNaming is the vendor and model a reader is named after.
@@ -244,9 +254,16 @@ func (p *Provider) devices() ([]cardDevice, error) {
 // readerNaming applies the same eligibility check to the selected reader and
 // to every alias considered during deduplication.
 func readerNaming(one Attached) (slotNaming, bool) {
+	if flagged, known := cardSlotBackends[one.Backend]; known {
+		return flagged, one.CardSlot
+	}
 	naming, ok := slotBackends[one.Backend]
 	return naming, ok
 }
+
+// bdaReaderGroup resolves Windows device topology without opening filters.
+// Other platforms do not enumerate BDA devices; tests can supply a topology.
+var bdaReaderGroup func(string) string
 
 // readerGroup names the physical slot shared by several device paths. RF
 // control routing is independent: the original W3U2/W3U3 have two RF control
@@ -264,6 +281,12 @@ func readerGroup(one Attached) string {
 		}
 		if hub, ok := parentPort(one.Port); ok {
 			return fmt.Sprintf("px3:%04x:%s", one.ID.Product, hub)
+		}
+	case "bda":
+		if one.CardSlot && bdaReaderGroup != nil {
+			if group := bdaReaderGroup(one.Selector); group != "" {
+				return "bda:" + group
+			}
 		}
 	}
 	return ""
@@ -284,7 +307,11 @@ func sharesSlot(one Attached, attached []Attached) bool {
 		if _, ok := readerNaming(other); !ok || readerGroup(other) != group {
 			continue
 		}
-		if portBefore(other.Port, one.Port) {
+		if one.Backend == "px3" {
+			if portBefore(other.Port, one.Port) {
+				return true
+			}
+		} else if strings.ToLower(other.Selector) < strings.ToLower(one.Selector) {
 			return true
 		}
 	}

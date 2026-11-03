@@ -218,3 +218,25 @@ func Pin(pin *directshow.IPin) (*PinProperties, error) {
 	}
 	return (*PinProperties)(unsafe.Pointer(unknown)), nil
 }
+
+// FilterProperties is a filter's IKsPropertySet with no instance payload.
+// PinProperties.Set carries an instance as required by pin-scoped protocols.
+type FilterProperties struct{ *PinProperties }
+
+func PropertySet(filter *directshow.IBaseFilter) (*FilterProperties, error) {
+	var unknown *win32.IUnknown
+	if err := filter.QueryInterface(&iidPinProperties, &unknown); err != nil || unknown == nil {
+		return nil, fmt.Errorf("the tuner filter offers no IKsPropertySet")
+	}
+	return &FilterProperties{(*PinProperties)(unsafe.Pointer(unknown))}, nil
+}
+func (property *FilterProperties) Set(set win32.GUID, id uint32, data []byte) error {
+	if len(data) == 0 {
+		return fmt.Errorf("empty property %d", id)
+	}
+	result, _, _ := syscall.SyscallN(property.vtbl[3], uintptr(unsafe.Pointer(property.PinProperties)), uintptr(unsafe.Pointer(&set)), uintptr(id), 0, 0, uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)))
+	if int32(result) < 0 {
+		return fmt.Errorf("write property %d: HRESULT 0x%08X", id, uint32(result))
+	}
+	return nil
+}

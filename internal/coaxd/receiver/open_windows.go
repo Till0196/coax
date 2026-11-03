@@ -71,8 +71,15 @@ func (device *windowsBDADevice) Close() error    { return device.device.Close() 
 // Settings is what the driver says about how the signal is being demodulated.
 func (device *windowsBDADevice) Settings() [][2]string { return device.device.Settings() }
 
+// The card a PLEX enclosure carries, reached through one of its tuners.
+func (device *windowsBDADevice) CardStatus() (bool, error)  { return device.device.CardStatus() }
+func (device *windowsBDADevice) ResetCard() ([]byte, error) { return device.device.ResetCard() }
+func (device *windowsBDADevice) TransmitAPDU(apdu []byte) ([]byte, error) {
+	return device.device.TransmitAPDU(apdu)
+}
+
 func (device *windowsBDADevice) Supports(deliverySystem string) (bool, error) {
-	return bda.Supports(deliverySystem), nil
+	return device.device.Supports(deliverySystem), nil
 }
 
 func (device *windowsBDADevice) Tune(properties map[string]string) error {

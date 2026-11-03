@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"runtime"
 	"sync"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/bda/filters"
 	"github.com/Till0196/coax/internal/coaxd/bda/graph"
 	"github.com/Till0196/coax/internal/coaxd/bda/mode"
+	"github.com/Till0196/coax/internal/coaxd/bda/vendors/asicen"
+	channels "github.com/Till0196/coax/internal/coaxd/tuning"
 	"time"
 )
 
@@ -49,6 +52,11 @@ type Device struct {
 	// closed after the next one has already opened must not put the graph back to
 	// idle: the reader would then sit on a pipe nothing writes to.
 	live *Stream
+	// plex is the PLEX tuner's filter, held open for as long as the device is,
+	// and plexBus one of its enclosure's first bridge when the tuner's own does
+	// not reach the demodulators (plex_windows.go).
+	plex, plexBus *plexChannel
+	plexCardMutex *sync.Mutex
 }
 
 // Measurement is a signal reading the driver may not offer. Zero is a real
@@ -71,8 +79,9 @@ type Status struct {
 
 type Stream struct {
 	// Reads run outside the COM thread; closing it may replace the session.
-	mutex sync.Mutex
-	spool *graph.Spool
+	mutex  sync.Mutex
+	spool  *graph.Spool
+	reader io.Reader
 	// device is the tuner this came from, so closing the stream can tell it the
 	// graph is no longer carrying anything -- nothing else signals when a backend
 	// may touch the hardware again.
@@ -104,15 +113,50 @@ func Open(selector string) (*Device, error) {
 		device.Close()
 		return nil, err
 	}
+	// Paths wired to a peer control bridge retain it for the raw I2C fallback.
+	// Transport and driver-provided TMCC are available to every ASICEN model.
+	var bus filters.Moniker
+	if asicen.NeedsControlPeer(selected.Vendor()) {
+		var found bool
+		bus, found = firstBridgeOf(selected, tuners)
+		if !found {
+			filters.ReleaseAll(tuners)
+			device.Close()
+			return nil, fmt.Errorf("find the control bridge for BDA tuner %q", selected.Name)
+		}
+	}
 	for index := range tuners {
-		if tuners[index].Moniker != selected.Moniker {
+		if tuners[index].Moniker != selected.Moniker && tuners[index].Moniker != bus.Moniker {
 			tuners[index].Moniker.Release()
 		}
+	}
+	if bus.Moniker != nil {
+		defer bus.Moniker.Release()
 	}
 	device.tuner = selected
 	device.name = selected.Name
 	device.card = cards.KeyOf(selected.Display)
 	device.demod = mode.For(selected)
+	if asicen.Is(selected.Vendor()) {
+		key := bridgeOf(selected.Display)
+		if asicen.CardMayHavePeer(selected.Vendor()) {
+			if hub, err := hubOf(selected.Display); err == nil {
+				key = hub
+			}
+		}
+		held, _ := plexCardLocks.LoadOrStore(key, &sync.Mutex{})
+		device.plexCardMutex = held.(*sync.Mutex)
+		if device.plex, err = openPlexChannel(selected); err != nil {
+			device.Close()
+			return nil, err
+		}
+		if bus.Moniker != nil {
+			if device.plexBus, err = openPlexChannel(bus); err != nil {
+				device.Close()
+				return nil, err
+			}
+		}
+	}
 	device.captures, err = filters.Enumerate(filters.CategoryReceiverComponent)
 	if err != nil {
 		device.Close()
@@ -122,6 +166,17 @@ func Open(selector string) (*Device, error) {
 }
 
 func (device *Device) Name() string { return device.name }
+func (device *Device) Supports(system string) bool {
+	if known := asicen.Deliveries(device.tuner.Vendor()); len(known) != 0 {
+		for _, delivery := range known {
+			if channels.Normalize(system) == channels.Normalize(delivery) {
+				return true
+			}
+		}
+		return false
+	}
+	return Supports(system)
+}
 
 func (device *Device) Tune(properties map[string]string) error {
 	return device.tune(properties, false)
@@ -137,6 +192,9 @@ func (device *Device) tune(properties map[string]string, untuned bool) error {
 	profile, err := BuildTuneProfile(properties)
 	if err != nil {
 		return err
+	}
+	if !device.Supports(profile.System) {
+		return fmt.Errorf("this tuner does not receive %s", profile.System)
 	}
 	device.closeSession()
 	// A card with one card-wide demodulator mode must be told which standard to
@@ -177,6 +235,7 @@ func (device *Device) startGraph(profile TuneProfile, untuned bool) error {
 		Profile:  profile,
 		Card:     device.card,
 		Untuned:  untuned,
+		StreamAt: device.plexStreamAt(),
 	})
 	if err != nil {
 		return err
@@ -271,6 +330,7 @@ func (device *Device) OpenStream() (*Stream, error) {
 	}
 	stream := &Stream{
 		spool:   spool,
+		reader:  session.Reader(),
 		session: session,
 		device:  device,
 		drained: time.Now(),
@@ -321,6 +381,12 @@ func (device *Device) Close() error {
 	device.streaming = false
 	device.releaseStreamingTuner()
 	device.closeSession()
+	for _, channel := range []**plexChannel{&device.plex, &device.plexBus} {
+		if *channel != nil {
+			(*channel).release()
+			*channel = nil
+		}
+	}
 	if device.tuner.Moniker != nil {
 		device.tuner.Moniker.Release()
 		device.tuner.Moniker = nil
@@ -356,7 +422,7 @@ func (stream *Stream) Read(ctx context.Context, buffer []byte) (int, error) {
 			return 0, err
 		}
 	}
-	read, err := stream.spool.Read(buffer)
+	read, err := stream.reader.Read(buffer)
 	if read == 0 && err == nil {
 		return 0, ErrWouldBlock
 	}

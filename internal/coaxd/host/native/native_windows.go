@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"strings"
 	"sync"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/pcie/dd"
 	"github.com/Till0196/coax/internal/coaxd/pcie/tbs"
 	"github.com/Till0196/coax/internal/coaxd/receiver"
+	"github.com/Till0196/coax/internal/coaxd/usb/board/px3"
 	"github.com/Till0196/coax/internal/coaxd/usb/board/t230"
 	"github.com/Till0196/coax/pkg/usbio"
 )
@@ -146,13 +148,15 @@ func Detect() ([]pool.Detected, error) {
 		if folded[tuner.Selector] {
 			continue
 		}
-		backend, deliveries := Backend, []string(nil)
+		backend, deliveries := Backend, tuner.Deliveries
 		if known, ok := driven[tuner.Selector]; ok {
 			backend, deliveries = backends[tuner.Selector], known
 		}
-		description := tuner.Name
+		description, tunerName := tuner.Name, tuner.Name
 		if name, ok := names[tuner.Selector]; ok && name != "" {
-			description = name
+			description, tunerName = name, name
+		} else if tuner.Model != "" {
+			description, tunerName = "PLEX "+tuner.Model, plexTuner(tuner)
 		}
 		found = append(found, pool.Detected{
 			Backend:     backend,
@@ -161,9 +165,10 @@ func Detect() ([]pool.Detected, error) {
 			Description: description,
 			Location:    tuner.Selector,
 			Deliveries:  deliveries,
+			CardSlot:    backend == Backend && tuner.CardSlot,
 			Tuners: []device.TunerInfo{{
 				Index:      0,
-				Name:       description,
+				Name:       tunerName,
 				Deliveries: deliveries,
 				Controls:   windowsControls(backend, deliveries, supplies[tuner.Selector]),
 			}},
@@ -173,6 +178,21 @@ func Detect() ([]pool.Detected, error) {
 	// loop above can never have seen them.
 	found = append(found, detectEarthsoft()...)
 	return found, nil
+}
+
+// plexTuner names a PLEX tuner as the USB backend names the same one, by its
+// tuner IC. A card, or a USB model with one tuner for both standards, is left
+// to its model's name.
+func plexTuner(tuner bda.Found) string {
+	if tuner.USBProduct == 0 || len(tuner.Deliveries) != 1 {
+		return ""
+	}
+	for _, one := range px3.Layout(usbio.ID{Vendor: 0x0b06, Product: tuner.USBProduct}) {
+		if slices.Equal(one.Deliveries, tuner.Deliveries) {
+			return one.Name
+		}
+	}
+	return ""
 }
 
 // earthsoftEntry is one receiver of an Earthsoft card as a listing wants it.
@@ -232,11 +252,19 @@ func Open(one pool.Detected, _ device.Options) (device.Board, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &board{
+	name := one.Description
+	if len(one.Tuners) > 0 {
+		name = one.Tuners[0].Name
+	}
+	plain := &board{
 		name:   one.Name,
-		tuner:  device.TunerInfo{Index: 0, Name: one.Description, Deliveries: one.Deliveries, Mode: opened.mode, Settings: opened.settings},
+		tuner:  device.TunerInfo{Index: 0, Name: name, Deliveries: one.Deliveries, Mode: opened.mode, Settings: opened.settings},
 		device: &tuner{receiver: opened.device, deliveries: one.Deliveries},
-	}, nil
+	}
+	if reader, ok := opened.device.(cardReceiver); ok && one.CardSlot {
+		return &cardBoard{board: plain, reader: reader}, nil
+	}
+	return plain, nil
 }
 
 // openedDevice is a tuner just opened, with what it said about itself then.

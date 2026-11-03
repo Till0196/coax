@@ -39,7 +39,7 @@ func tuningSpaceAndLocatorFor(profile tuning.TuneProfile) (tuningSpaceCLSID, loc
 // mandatory: the Microsoft Network Provider validates a tune request against a
 // tuning space it already has, so the real one cold answers E_INVALIDARG. The
 // blank request establishes the tuning space and network type.
-func primeTuningSpace(tuner *tv.ITuner, profile tuning.TuneProfile, networkType win32.GUID) (*tv.ITuningSpace, error) {
+func primeTuningSpace(tuner *tv.ITuner, profile tuning.TuneProfile, networkType win32.GUID, withLocator bool) (*tv.ITuningSpace, error) {
 	tuningSpaceCLSID, _ := tuningSpaceAndLocatorFor(profile)
 	space, err := createTuningSpace(tuningSpaceCLSID)
 	if err != nil {
@@ -73,6 +73,25 @@ func primeTuningSpace(tuner *tv.ITuner, profile tuning.TuneProfile, networkType 
 	// Every triplet field left unset (-1) rather than zero, which is a valid ONID.
 	_ = setDVBTriplet(blank, -1)
 
+	if withLocator {
+		_, clsid := tuningSpaceAndLocatorFor(profile)
+		locator, e := createLocator(clsid)
+		if e != nil {
+			space.Release()
+			return nil, e
+		}
+		defer locator.Release()
+		if e = locator.Put_CarrierFrequency(profile.FrequencyKHz); e == nil {
+			e = setDeliverySpecificLocator(locator, profile)
+		}
+		if e == nil {
+			e = space.Put_DefaultLocator(locator)
+		}
+		if e != nil {
+			space.Release()
+			return nil, e
+		}
+	}
 	if err := tuner.Put_TuningSpace(space); err != nil {
 		space.Release()
 		return nil, fmt.Errorf("hand the tuning space to the provider: %w", err)

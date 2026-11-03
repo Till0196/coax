@@ -23,10 +23,15 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/bda/cards"
 	"github.com/Till0196/coax/internal/coaxd/bda/sink"
 	"github.com/Till0196/coax/internal/coaxd/bda/vendors"
+	"github.com/Till0196/coax/internal/coaxd/bda/vendors/asicen"
 )
 
 // Session is one running graph.
 type Session struct {
+	plex           *asicen.Control
+	plexProperties *vendors.FilterProperties
+	reader         io.Reader
+
 	// system is the acquisition standard selected for this graph.
 	system  string
 	graph   *directshow.IGraphBuilder
@@ -134,10 +139,16 @@ func (session *Session) Recapture(capture bool) {
 	session.writer.Attach(out)
 	old := session.spool
 	session.spool = spool
+	session.reader = spool
+	if spool != nil && session.plex != nil {
+		session.reader = &asicen.Reader{Source: spool, Control: session.plex}
+	}
 	if old != nil {
 		_ = old.Close()
 	}
 }
+
+func (session *Session) Reader() io.Reader { return session.reader }
 
 // The graph events that mean it has given up. DirectShow reports them here and
 // nowhere else: IMediaControl keeps answering State_Running long after streaming
@@ -213,6 +224,13 @@ func (session *Session) Close() {
 	if session.pin != nil {
 		session.pin.Release()
 		session.pin = nil
+	}
+	if session.plex != nil {
+		session.plex.Close()
+	}
+	if session.plexProperties != nil {
+		session.plexProperties.Release()
+		session.plexProperties = nil
 	}
 	if session.tuner != nil {
 		session.tuner.Release()
