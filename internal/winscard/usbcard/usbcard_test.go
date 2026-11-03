@@ -6,6 +6,7 @@ package usbcard
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -180,6 +181,35 @@ func TestABoardWithoutASerialKeepsItsNameBesideAnotherOfItsModel(t *testing.T) {
 		if one.port == "1-2" && one.name != before[0].name {
 			t.Errorf("the board in 1-2 was %q alone and %q beside another", before[0].name, one.name)
 		}
+	}
+}
+
+// Each dual-bridge PX3 enclosure has one physical card slot. Independent RF
+// control bridges do not imply independent readers.
+func TestDualBridgeEnclosuresAreOneReader(t *testing.T) {
+	v2 := usbio.ID{Vendor: 0x0b06, Product: 0x0006}
+	w3u3 := usbio.ID{Vendor: 0x0b06, Product: 0x0005}
+	stub(t, nil, []usb.Detected{
+		{Backend: "px3", Device: "1:9", ID: v2, Port: "1-1.2"},
+		{Backend: "px3", Device: "1:8", ID: v2, Port: "1-1.1"},
+		{Backend: "px3", Device: "1:20", ID: v2, Port: "1-4.1"},
+		{Backend: "px3", Device: "1:30", ID: w3u3, Port: "1-3.1"},
+		{Backend: "px3", Device: "1:31", ID: w3u3, Port: "1-3.2"},
+		{Backend: "px3", Device: "1:40", ID: usbio.ID{Vendor: 0x0b06, Product: 4}, Port: "1-5.2"},
+		{Backend: "px3", Device: "1:41", ID: usbio.ID{Vendor: 0x0b06, Product: 4}, Port: "1-5.1"},
+		{Backend: "px3", Device: "1:50", ID: usbio.ID{Vendor: 0x0b06, Product: 3}, Port: "1-6.1"},
+		{Backend: "px3", Device: "1:51", ID: usbio.ID{Vendor: 0x0b06, Product: 3}, Port: "1-6.2"},
+	})
+	found, err := New(Config{}).devices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ports []string
+	for _, one := range found {
+		ports = append(ports, one.port)
+	}
+	if want := []string{"1-1.1", "1-4.1", "1-3.1", "1-5.1", "1-6.1", "1-6.2"}; !slices.Equal(ports, want) {
+		t.Errorf("readers on %v, want %v", ports, want)
 	}
 }
 

@@ -19,6 +19,8 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -221,8 +223,8 @@ func (p *Provider) devices() ([]cardDevice, error) {
 	}
 	var found []cardDevice
 	for _, candidate := range attached {
-		naming, ok := slotBackends[candidate.Backend]
-		if !ok {
+		naming, ok := readerNaming(candidate)
+		if !ok || sharesSlot(candidate, attached) {
 			continue
 		}
 		found = append(found, cardDevice{
@@ -237,6 +239,74 @@ func (p *Provider) devices() ([]cardDevice, error) {
 	}
 	p.observe(found)
 	return found, nil
+}
+
+// readerNaming applies the same eligibility check to the selected reader and
+// to every alias considered during deduplication.
+func readerNaming(one Attached) (slotNaming, bool) {
+	naming, ok := slotBackends[one.Backend]
+	return naming, ok
+}
+
+// readerGroup names the physical slot shared by several device paths. RF
+// control routing is independent: the original W3U2/W3U3 have two RF control
+// bridges, but their enclosure still has one card slot.
+func readerGroup(one Attached) string {
+	switch one.Backend {
+	case "px3":
+		if one.ID.Vendor != 0x0b06 {
+			return ""
+		}
+		switch one.ID.Product {
+		case 4, 5, 6:
+		default:
+			return ""
+		}
+		if hub, ok := parentPort(one.Port); ok {
+			return fmt.Sprintf("px3:%04x:%s", one.ID.Product, hub)
+		}
+	}
+	return ""
+}
+
+// sharesSlot reports whether another eligible path represents this physical
+// reader already. Choose deterministically so enumeration order cannot change
+// the reader selected for a still-attached enclosure.
+func sharesSlot(one Attached, attached []Attached) bool {
+	group := readerGroup(one)
+	if group == "" {
+		return false
+	}
+	for _, other := range attached {
+		if other.Backend != one.Backend || other.Selector == one.Selector {
+			continue
+		}
+		if _, ok := readerNaming(other); !ok || readerGroup(other) != group {
+			continue
+		}
+		if portBefore(other.Port, one.Port) {
+			return true
+		}
+	}
+	return false
+}
+
+// parentPort is the hub port a device's port hangs off.
+func parentPort(port string) (string, bool) {
+	at := strings.LastIndexByte(port, '.')
+	if at < 0 {
+		return "", false
+	}
+	return port[:at], true
+}
+
+// portBefore orders two ports of one hub by their last number.
+func portBefore(a, b string) bool {
+	last := func(port string) int {
+		n, _ := strconv.Atoi(port[strings.LastIndexByte(port, '.')+1:])
+		return n
+	}
+	return last(a) < last(b)
 }
 
 // boardIdentity is the token in a reader's published name that tells one
