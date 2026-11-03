@@ -6,6 +6,8 @@ package px3
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/Till0196/coax/internal/coaxd/device"
@@ -25,9 +27,6 @@ const (
 	// re-enumerates in well under a second; the rest is slack for a hub.
 	enumerationTimeout = 5 * time.Second
 	enumerationPoll    = 100 * time.Millisecond
-	// coldBoardLimit guards the boot loop against a board that fails to leave
-	// the cold identity; the loop otherwise ends on its own.
-	coldBoardLimit = 8
 )
 
 // errNoColdBoard reports that nothing is waiting to be booted.
@@ -40,14 +39,26 @@ var errNoColdBoard = errors.New("no cold ASV52xx board is attached")
 // unrecognised image is refused here and left to load-asv52xx-firmware, where
 // an address can be given deliberately.
 func bootColdBoards(options device.Options) error {
-	probe, err := usbio.Open("", coldIDs)
+	attached, err := usbio.Devices()
 	if err != nil {
+		return err
+	}
+	var pending []usbio.Attached
+	seen := make(map[string]bool)
+	for _, candidate := range attached {
+		if candidate.ID.In(coldIDs) {
+			if candidate.Port == "" {
+				return fmt.Errorf("cold ASV52xx bridge %s has no physical USB port", candidate.Location)
+			}
+			pending = append(pending, candidate)
+			seen[candidate.Port] = true
+		}
+	}
+	if len(pending) == 0 {
 		return errNoColdBoard
 	}
-	// Released straight away: the firmware is read before anything is
-	// uploaded, so a missing image is reported without having claimed a board.
-	_ = probe.Close()
-	// Looked for where every other blob is, not in one directory only.
+	// Start the first hub port before a sibling that its startup can disconnect.
+	sort.Slice(pending, func(i, j int) bool { return pending[i].Port < pending[j].Port })
 	path, err := device.FindFirmware(options.FirmwareDirOrDefault(), asv5211.FirmwareFile)
 	if err != nil {
 		return fmt.Errorf("a cold ASV52xx board is attached but its firmware could not be found: %w\nrun fwextract over PLEX's PX-SERIES_ver.1.0_Linux_Driver.zip to produce %s", err, asv5211.FirmwareFile)
@@ -59,52 +70,130 @@ func bootColdBoards(options device.Options) error {
 	if !firmware.Known {
 		return fmt.Errorf("%s is not an image this program recognises (SHA-256 %s), so the address to start it at is unknown; upload it with \"load-asv52xx-firmware --firmware-index\" instead", path, firmware.Digest())
 	}
-	for attempt := 0; attempt < coldBoardLimit; attempt++ {
-		cold := coldBoardCount()
-		transport, openErr := usbio.Open("", coldIDs)
-		if openErr != nil {
-			if attempt == 0 {
-				return errNoColdBoard
-			}
-			return nil
+	for at := 0; at < len(pending); at++ {
+		// USB addresses change at each enumeration, including sibling restoration.
+		target := pending[at]
+		transport, err := openColdAt(target.Port)
+		if err != nil {
+			return err
 		}
-		uploadErr := asv5211.UploadFirmwareAt(transport, firmware.Image, firmware.Index)
-		_ = transport.Close()
-		if errors.Is(uploadErr, usbio.ErrGone) {
-			// The board opened was one already booted and on its way off the bus:
-			// the PX-W3U3 V2's two bridges sit behind one hub, and the listing can
-			// still carry the first under its cold identity as the second is opened.
-			time.Sleep(enumerationPoll)
+		if transport != nil {
+			uploadErr := asv5211.UploadFirmwareAt(transport, firmware.Image, firmware.Index)
+			_ = transport.Close()
+			if uploadErr != nil && !errors.Is(uploadErr, usbio.ErrGone) {
+				return fmt.Errorf("upload ASV52xx firmware at %s: %w", target.Port, uploadErr)
+			}
+		}
+		warm, err := awaitBootDevice(target.Port, supportedIDs, time.Now().Add(enumerationTimeout))
+		if err != nil {
+			return err
+		}
+		if warm.ID.Product != 0x0004 && warm.ID.Product != 0x0005 && warm.ID.Product != v2Product {
 			continue
 		}
-		if uploadErr != nil {
-			return fmt.Errorf("upload ASV52xx firmware: %w", uploadErr)
+		siblings, err := restoreBootSibling(warm)
+		if err != nil {
+			return err
 		}
-		awaitColdDeparture(cold)
+		for _, sibling := range siblings {
+			if !seen[sibling.Port] {
+				for port := range seen {
+					if port != warm.Port && parentPort(port) == parentPort(warm.Port) {
+						return fmt.Errorf("enclosure at %s changed sibling port from %s to %s", parentPort(warm.Port), port, sibling.Port)
+					}
+				}
+				pending = append(pending, sibling)
+				seen[sibling.Port] = true
+			}
+		}
+	}
+	for _, target := range pending {
+		if _, err := awaitBootDevice(target.Port, supportedIDs, time.Now().Add(enumerationTimeout)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// coldBoardCount is how many boards are attached under a cold identity.
-func coldBoardCount() int {
-	attached, err := usbio.Devices()
-	if err != nil {
-		return 0
-	}
-	count := 0
-	for _, candidate := range attached {
-		if candidate.ID.In(coldIDs) {
-			count++
+// openColdAt resolves the port again if its address changes while opening.
+// A bridge already running its firmware needs no further upload.
+func openColdAt(port string) (*usbio.Transport, error) {
+	deadline := time.Now().Add(enumerationTimeout)
+	for {
+		candidate, err := awaitBootDevice(port, append(coldIDs, supportedIDs...), deadline)
+		if err != nil {
+			return nil, err
 		}
+		if candidate.ID.In(supportedIDs) {
+			return nil, nil
+		}
+		transport, err := usbio.Open(candidate.Location, coldIDs)
+		if err == nil {
+			return transport, nil
+		}
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("open cold ASV52xx bridge at %s: %w", port, err)
+		}
+		time.Sleep(enumerationPoll)
 	}
-	return count
 }
 
-// awaitColdDeparture waits for a board just sent its firmware to leave its cold
-// identity, so that the next open does not find it again.
-func awaitColdDeparture(before int) {
+// awaitBootDevice follows one physical bridge across USB address changes.
+func awaitBootDevice(port string, ids []usbio.ID, deadline time.Time) (usbio.Attached, error) {
+	for {
+		if !time.Now().Before(deadline) {
+			return usbio.Attached{}, fmt.Errorf("ASV52xx bridge at %s did not re-enumerate", port)
+		}
+		attached, err := usbio.Devices()
+		if err != nil {
+			return usbio.Attached{}, err
+		}
+		for _, candidate := range attached {
+			if candidate.Port == port && candidate.ID.In(ids) {
+				return candidate, nil
+			}
+		}
+		time.Sleep(enumerationPoll)
+	}
+}
+
+// restoreBootSibling enables the second enclosure bridge before its upload.
+func restoreBootSibling(warm usbio.Attached) ([]usbio.Attached, error) {
+	if !strings.Contains(warm.Port, ".") {
+		return nil, fmt.Errorf("bridge at %s has no enclosure hub port", warm.Port)
+	}
+	restored := false
 	deadline := time.Now().Add(enumerationTimeout)
-	for coldBoardCount() >= before && time.Now().Before(deadline) {
+	for {
+		attached, err := usbio.Devices()
+		if err != nil {
+			return nil, err
+		}
+		var siblings []usbio.Attached
+		for _, candidate := range attached {
+			if candidate.Port != warm.Port && parentPort(candidate.Port) == parentPort(warm.Port) &&
+				(candidate.ID.In(coldIDs) || candidate.ID == warm.ID) {
+				siblings = append(siblings, candidate)
+			}
+		}
+		if len(siblings) == 1 && (restored || siblings[0].ID == warm.ID) {
+			return siblings, nil
+		}
+		if len(siblings) > 1 || !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("bridge at %s has %d enclosure siblings after startup", warm.Port, len(siblings))
+		}
+		if !restored {
+			held, err := acquireBridge(warm.Location, time.Until(deadline))
+			if err != nil {
+				return nil, err
+			}
+			err = held.bridge.SetGPIO(0x40, 0x40)
+			_ = held.release()
+			if err != nil {
+				return nil, fmt.Errorf("restore enclosure sibling at %s: %w", warm.Port, err)
+			}
+			restored = true
+		}
 		time.Sleep(enumerationPoll)
 	}
 }
