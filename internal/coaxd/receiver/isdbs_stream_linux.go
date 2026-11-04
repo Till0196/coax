@@ -46,14 +46,19 @@ const (
 )
 
 // isdbsStreamsFor says how the driver behind a frontend reads the value, from
-// the kernel driver's name and the frontend's.
-func isdbsStreamsFor(driver, frontend string) isdbsStreams {
+// the kernel driver's name and the frontend's. relative says the drivers that
+// would take a place as an identifier have been changed to read it as a place,
+// which nothing on the frontend tells.
+func isdbsStreamsFor(driver, frontend string, relative bool) isdbsStreams {
 	switch {
 	case driver == "ddbridge":
 		// Every MCI card with an ISDB-S demodulator, the MAX M4, its second
 		// version and the M2, is tuned through the same search command.
 		return isdbsMarkedIdentifiers
 	case frontend == "Toshiba TC90522 ISDB-S module", frontend == "Socionext MN88443x":
+		if relative {
+			return isdbsStreamsAsGiven
+		}
 		return isdbsIdentifiersOnly
 	}
 	return isdbsStreamsAsGiven
@@ -75,7 +80,7 @@ func isdbsStreamProperties(kind isdbsStreams, frontend string, properties map[st
 	switch kind {
 	case isdbsIdentifiersOnly:
 		if value != 0 && value < relativeStreamLimit {
-			return nil, fmt.Errorf("%s takes STREAM_ID only as a transport stream identifier, so stream %d cannot be chosen by its place on the transponder; give the identifier instead",
+			return nil, fmt.Errorf("%s takes STREAM_ID only as a transport stream identifier, so stream %d cannot be chosen by its place on the transponder; give the identifier instead, or start coaxd with --dvb-relative-streams for a driver changed to read it as a place",
 				frontend, value)
 		}
 		return properties, nil

@@ -79,7 +79,7 @@ func Open(options Options) (Device, error) {
 		device.settle = info.Name == settleFrontendName
 		device.frontendName = info.Name
 	}
-	device.streams = isdbsStreamsFor(dvb.Driver(frontendPath), device.frontendName)
+	device.streams = isdbsStreamsFor(dvb.Driver(frontendPath), device.frontendName, options.DVBRelativeStreams)
 	if systems, enumErr := frontend.DeliverySystems(); enumErr == nil {
 		device.supported = make(map[uint32]bool, len(systems))
 		for _, system := range systems {

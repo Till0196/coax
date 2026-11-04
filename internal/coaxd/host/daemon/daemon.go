@@ -58,6 +58,9 @@ type Options struct {
 	ChardevRoot string
 	// DVBRoot is where the Linux DVB device nodes are, empty for /dev/dvb.
 	DVBRoot string
+	// DVBRelativeStreams passes an ISDB-S stream's place on the transponder to
+	// the Linux DVB drivers that would otherwise take it as an identifier.
+	DVBRelativeStreams bool
 	// FirmwareDir holds the blobs the firmware-loading boards need.
 	FirmwareDir string
 	// Linger is how long a board stays open after its last user goes.
@@ -109,6 +112,7 @@ func Run(ctx context.Context, options Options) error {
 	defer finishSession()
 
 	native.SetRoot(options.DVBRoot)
+	native.SetRelativeStreams(options.DVBRelativeStreams)
 	native.SetChardevRoot(options.ChardevRoot)
 	native.SetSocket(options.Sockets.HTTP)
 

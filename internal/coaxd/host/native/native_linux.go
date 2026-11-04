@@ -65,6 +65,14 @@ func SetChardevRoot(path string) {
 	}
 }
 
+// RelativeStreams passes an ISDB-S stream's place on the transponder to the
+// DVB drivers that would otherwise take it as an identifier. See
+// receiver.Options.DVBRelativeStreams.
+var RelativeStreams bool
+
+// SetRelativeStreams sets RelativeStreams.
+func SetRelativeStreams(on bool) { RelativeStreams = on }
+
 // SetRoot points detection at a device tree other than /dev/dvb, for a
 // container that mounts it elsewhere. An empty path changes nothing.
 func SetRoot(path string) {
@@ -255,11 +263,12 @@ func openDVB(one pool.Detected) (device.Board, error) {
 		return nil, fmt.Errorf("%q is not a DVB adapter name", one.Name)
 	}
 	opened, err := receiver.Open(receiver.Options{
-		Backend:      Backend,
-		Device:       one.Selector,
-		LinuxDVBRoot: Root,
-		Adapter:      adapter,
-		Frontend:     frontend,
+		Backend:            Backend,
+		Device:             one.Selector,
+		LinuxDVBRoot:       Root,
+		Adapter:            adapter,
+		DVBRelativeStreams: RelativeStreams,
+		Frontend:           frontend,
 		// Demux and DVR nodes are numbered to match the frontend on every adapter.
 		Demux: frontend,
 		DVR:   frontend,

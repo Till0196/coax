@@ -66,4 +66,7 @@ type Options struct {
 	DVR          int
 	LinuxDVBRoot string
 	FirmwareDir  string
+	// DVBRelativeStreams passes an ISDB-S stream's place on the transponder to
+	// a Linux DVB driver that otherwise reads STREAM_ID only as an identifier.
+	DVBRelativeStreams bool
 }

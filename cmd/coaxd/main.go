@@ -95,6 +95,7 @@ func serve(arguments []string, stdout, stderr *os.File) error {
 	allowRemote := flags.Bool("allow-remote", false, "let --http name an address other than the loopback")
 	firmwareDir := flags.String("firmware-dir", "", "firmware directory (OS default when omitted)")
 	dvbRoot := flags.String("dvb-root", "", "where the Linux DVB device nodes are (/dev/dvb when omitted); ignored on other systems")
+	dvbRelativeStreams := flags.Bool("dvb-relative-streams", false, "pass an ISDB-S STREAM_ID below 12, a stream's place on the transponder, to the Linux TC90522 and MN88443x drivers as it is, for a driver changed to read it so; the drivers in the kernel read it as an identifier, so it is refused without this; ignored on other systems")
 	chardevRoot := flags.String("chardev-root", "", "where the px4_drv and pt3 character devices are (/dev when omitted); ignored on other systems")
 	linger := flags.Duration("board-linger", pool.DefaultLinger, "how long a board stays open after its last user; 0 closes it at once")
 	idleAfter := flags.Duration("idle", idle.DefaultInterval*time.Duration(idle.DefaultStrikes),
@@ -168,6 +169,7 @@ func serve(arguments []string, stdout, stderr *os.File) error {
 	}
 
 	options.DVBRoot = *dvbRoot
+	options.DVBRelativeStreams = *dvbRelativeStreams
 	options.ChardevRoot = *chardevRoot
 	options.USBSocket = *usbSocket
 

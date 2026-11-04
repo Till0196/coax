@@ -30,6 +30,9 @@ func Recovering() []string { return nil }
 // SetRoot does nothing here: this system has no DVB device tree.
 func SetRoot(string) {}
 
+// SetRelativeStreams does nothing here: the Linux DVB API is a Linux one.
+func SetRelativeStreams(bool) {}
+
 // SetChardevRoot does nothing here: px4_drv is a Linux driver.
 func SetChardevRoot(string) {}
 

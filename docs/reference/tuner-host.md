@@ -603,6 +603,7 @@ MirakurunはSIGTERMで止めるので、`coax tune`はSIGTERMで接続を閉じ�
 | `--allow-remote` | `--http`にループバック以外を許す | 不許可 |
 | `--firmware-dir` | ファームウェアの置き場所 | OSごとの既定 |
 | `--dvb-root` | Linux DVBのデバイスノードの場所。他OSでは無視 | `/dev/dvb` |
+| `--dvb-relative-streams` | Linux DVBのTC90522とMN88443xのドライバーに、ISDB-Sの相対TS番号をそのまま渡す。相対TS番号を読めるように手を入れたドライバー向け（[dvb.md](../boards/dvb.md#isdb-sのstream_id)）。他OSでは無視 | 渡さない（エラーにする） |
 | `--chardev-root` | px4_drv、pt3のキャラクタデバイスの場所。他OSでは無視 | `/dev` |
 | `--board-linger` | 最後の利用者がいなくなってからデバイスを開いておく時間。`0`ですぐに閉じる | 10秒 |
 | `--idle` | 合計この時間だけ使われなければ終了。`0`で常駐 | 15秒 |

@@ -23,8 +23,27 @@ func TestISDBSStreamsAreReadByDriver(t *testing.T) {
 		{"", "", isdbsStreamsAsGiven},
 	}
 	for _, c := range cases {
-		if got := isdbsStreamsFor(c.driver, c.frontend); got != c.want {
+		if got := isdbsStreamsFor(c.driver, c.frontend, false); got != c.want {
 			t.Errorf("isdbsStreamsFor(%q, %q) = %v, want %v", c.driver, c.frontend, got, c.want)
+		}
+	}
+}
+
+// --dvb-relative-streams hands a place to the TC90522 and MN88443x drivers as
+// it is, and changes nothing for the others.
+func TestRelativeStreamsPassThePlaceToTheIdentifierOnlyDrivers(t *testing.T) {
+	cases := []struct {
+		driver, frontend string
+		want             isdbsStreams
+	}{
+		{"earth_pt3", "Toshiba TC90522 ISDB-S module", isdbsStreamsAsGiven},
+		{"", "Socionext MN88443x", isdbsStreamsAsGiven},
+		{"ddbridge", "M4", isdbsMarkedIdentifiers},
+		{"", "", isdbsStreamsAsGiven},
+	}
+	for _, c := range cases {
+		if got := isdbsStreamsFor(c.driver, c.frontend, true); got != c.want {
+			t.Errorf("isdbsStreamsFor(%q, %q, true) = %v, want %v", c.driver, c.frontend, got, c.want)
 		}
 	}
 }
