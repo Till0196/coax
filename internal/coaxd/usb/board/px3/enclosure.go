@@ -292,6 +292,9 @@ func initializeEnclosure(holds []*sharedBridge, product uint16) (*enclosure, err
 				func() error { return bridge.SetGPIO(on, lnbSupplyMask) },
 				func() error { return bridge.SetGPIO(^on&lnbSupplyMask, lnbSupplyMask) },
 			)
+			if wired.noLNBControl {
+				pair.lnb = device.NewLatch(nil, nil)
+			}
 		}
 		ends, err := newFrontEnds(bridge, wired)
 		if err != nil {

@@ -61,6 +61,9 @@ func Layout(id usbio.ID) []device.TunerInfo {
 		supply = "card"
 	}
 	satelliteControls := device.Controls{LNB: &device.LNBControl{Off: true, Shared: supply}}
+	if wired.noLNBControl {
+		satelliteControls.LNB = nil
+	}
 	terrestrialControls := device.Controls{}
 	// The loop-through output is each tuner's own: the V2's NM120 and TDA20142
 	// have four levels, the FC0012 is on or off, the QM1D1B0004 has none.
@@ -121,6 +124,10 @@ type wiring struct {
 	// lnbSupplyOn is what to put on GPIO bit 0x20 to feed the aerial lead. The two
 	// generations are opposite: zero on the FC0012 boards, the bit itself on the V2.
 	lnbSupplyOn byte
+	// noLNBControl marks the PX-S3U and PX-S3U2, whose supply no software
+	// switches: the PX-S3U2 feeds the dish whenever its AC adapter is connected.
+	// GPIO 0x20 is only stepped through at power-up there and is left alone.
+	noLNBControl bool
 	// externalAmplifier is the board-level amplifier lines. Only the V2 has a pair.
 	externalAmplifier *amplifierLines
 	// terrestrialName and satelliteName are what a listing calls the two tuners.
@@ -318,6 +325,9 @@ func fc0012WiringFor(product uint16) wiring {
 		lnbSupplyOn:     0x00,
 		terrestrialName: "FC0012",
 		satelliteName:   "QM1D1B0004",
+	}
+	if product == 0x0001 || product == 0x0003 {
+		wired.noLNBControl = true
 	}
 	if product == 0x0001 {
 		wired.newTerrestrial = newFC0012
@@ -744,14 +754,26 @@ func (front *frontend) tuneSatellite(frequency uint64, properties map[string]str
 	if err != nil {
 		return err
 	}
-	// The enclosure gates one supply for both satellite tuners, so there is no
-	// voltage to choose: a channel asking for none is honoured by not claiming it.
-	feed, err := tuning.SwitchedSupply(properties)
-	if err != nil {
-		return err
-	}
-	if err := front.wantLNB(feed); err != nil {
-		return err
+	if front.hardware.wired.noLNBControl {
+		// Nothing here switches the supply, so a channel saying anything of it is
+		// refused rather than tuned as if it had been honoured.
+		lnb, err := tuning.ParseLNB(properties)
+		if err != nil {
+			return err
+		}
+		if lnb != tuning.LNBUnset {
+			return fmt.Errorf("%w: the PX-S3U and PX-S3U2 have no LNB supply this program can switch; the PX-S3U2 feeds the dish whenever its AC adapter is connected", tuning.ErrNoLNBSwitch)
+		}
+	} else {
+		// The enclosure gates one supply for both satellite tuners, so there is no
+		// voltage to choose: a channel asking for none is honoured by not claiming it.
+		feed, err := tuning.SwitchedSupply(properties)
+		if err != nil {
+			return err
+		}
+		if err := front.wantLNB(feed); err != nil {
+			return err
+		}
 	}
 	demod := front.hardware.demodS
 	if err := demod.Tune(front.hardware.wired.tuners[satellite], func() error {

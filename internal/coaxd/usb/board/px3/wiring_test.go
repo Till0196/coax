@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Till0196/coax/internal/coaxd/demod/tc90522"
+	"github.com/Till0196/coax/internal/coaxd/tuning"
 	"github.com/Till0196/coax/pkg/i2c"
 	"github.com/Till0196/coax/pkg/usbio"
 )
@@ -475,13 +476,37 @@ func TestTheLoopThroughIsListedWhereTheTunerHasOne(t *testing.T) {
 	}
 }
 
-// An enclosure of two bridges feeds one lead, and a board of one bridge its
-// own.
+// An enclosure of two bridges feeds one lead from its supply.
 func TestTheSupplyIsSharedByAnEnclosureOfTwoBridges(t *testing.T) {
-	for product, want := range map[uint16]string{0x0003: "board", 0x0004: "card", 0x0005: "card", v2Product: "card"} {
+	for product, want := range map[uint16]string{0x0004: "card", 0x0005: "card", v2Product: "card"} {
 		lnb := Layout(usbio.ID{Vendor: 0x0b06, Product: product})[satellite].Controls.LNB
 		if lnb == nil || lnb.Shared != want {
 			t.Errorf("product %#04x lists the supply %+v, want shared %q", product, lnb, want)
+		}
+	}
+}
+
+// The PX-S3U and PX-S3U2 offer no supply, a channel naming one is refused, and
+// tuning one leaves GPIO 0x20 alone.
+func TestTheS3UBoardsOfferNoSupply(t *testing.T) {
+	for _, product := range []uint16{0x0001, 0x0003} {
+		if lnb := Layout(usbio.ID{Vendor: 0x0b06, Product: product})[satellite].Controls.LNB; lnb != nil {
+			t.Errorf("product %#04x offers the supply %+v", product, lnb)
+		}
+		if !wiringFor(product).noLNBControl {
+			t.Errorf("product %#04x would switch GPIO 0x20 for the supply", product)
+		}
+	}
+	for _, product := range []uint16{0x0004, 0x0005, v2Product} {
+		if wiringFor(product).noLNBControl {
+			t.Errorf("product %#04x has lost its supply", product)
+		}
+	}
+	front := &frontend{hardware: &hardware{frontEnds: frontEnds{wired: wiringFor(0x0003)}}, index: satellite}
+	for _, voltage := range []string{"off", "high"} {
+		err := front.tuneSatellite(1318000, map[string]string{"DELIVERY_SYSTEM": "ISDBS", "VOLTAGE": voltage})
+		if !errors.Is(err, tuning.ErrNoLNBSwitch) {
+			t.Errorf("VOLTAGE=%s gave %v, want the supply refused", voltage, err)
 		}
 	}
 }
