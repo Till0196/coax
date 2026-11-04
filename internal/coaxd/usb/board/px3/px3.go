@@ -56,11 +56,16 @@ func Layout(id usbio.ID) []device.TunerInfo {
 	// FC0012's ladder on the terrestrial tuner (frontend.GainLadder).
 	satelliteControls := device.Controls{LNB: &device.LNBControl{Off: true, Shared: "board"}}
 	terrestrialControls := device.Controls{}
+	// The loop-through output is each tuner's own: the V2's NM120 and TDA20142
+	// have four levels, the FC0012 is on or off, the QM1D1B0004 has none.
 	if wired.externalAmplifier != nil {
 		satelliteControls.Gain = &device.GainControl{}
 		terrestrialControls.Gain = &device.GainControl{}
+		satelliteControls.LoopThrough = &device.LoopThroughControl{}
+		terrestrialControls.LoopThrough = &device.LoopThroughControl{}
 	} else {
 		terrestrialControls.Gain = &device.GainControl{Decibels: fc0012.GainStepsDB()}
+		terrestrialControls.LoopThrough = &device.LoopThroughControl{Switch: true}
 	}
 	return []device.TunerInfo{
 		{Index: satellite, Name: wired.satelliteName, Deliveries: []string{"ISDB-S"}, Controls: satelliteControls},
@@ -595,6 +600,9 @@ func (front *frontend) Tune(properties map[string]string) error {
 			}
 		}
 	}
+	if err := front.setLoopThrough(properties); err != nil {
+		return err
+	}
 	frequency, err := tuning.Number(properties, "FREQUENCY", true)
 	if err != nil {
 		return err
@@ -677,6 +685,44 @@ func (front *frontend) tuneTerrestrial(frequency uint64) error {
 	}, func() error {
 		return front.hardware.configureDemods(front.hardware.control, front.hardware.wired.afterTune[terrestrial])
 	})
+}
+
+// steppedLoopThrough is a tuner whose loop-through output has four steps, 0
+// the strongest: the V2's NM120 and TDA20142.
+type steppedLoopThrough interface {
+	SetLoopThrough(step int) error
+}
+
+// switchedLoopThrough is a tuner whose loop-through output is only on or off:
+// the FC0012.
+type switchedLoopThrough interface {
+	SetLoopThrough(on bool) error
+}
+
+// setLoopThrough sets this tuner's own loop-through output. A four-step chip
+// takes the level as it is, and is left at the middle step when the channel
+// does not say. The FC0012 is driven only for a channel naming a level above
+// low, and is otherwise left off as it is initialized. A tuner without one
+// still tunes such a channel: one channel file serves every tuner.
+func (front *frontend) setLoopThrough(properties map[string]string) error {
+	level, set, err := tuning.ParseLoopThrough(properties)
+	if err != nil {
+		return err
+	}
+	var tuner any = front.hardware.tunerS
+	if front.index == terrestrial {
+		tuner = front.hardware.tunerT
+	}
+	switch loop := tuner.(type) {
+	case steppedLoopThrough:
+		err = loop.SetLoopThrough(int(level))
+	case switchedLoopThrough:
+		err = loop.SetLoopThrough(set && level != tuning.LoopThroughLow)
+	}
+	if err != nil {
+		return fmt.Errorf("set tuner %d's loop-through: %w", front.index, err)
+	}
+	return nil
 }
 
 // tuneSatellite moves the satellite tuner and picks the relative stream out of

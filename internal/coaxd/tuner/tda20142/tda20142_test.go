@@ -115,3 +115,35 @@ func TestFilterSettingsForTheISDBSCarrier(t *testing.T) {
 		}
 	}
 }
+
+func TestLoopThroughStepsRunFromTheStrongest(t *testing.T) {
+	b := newBench()
+	tuner := &Tuner{bus: b}
+	for step, want := range []byte{0x00, 0x02, 0x04, 0x06} {
+		if err := tuner.SetLoopThrough(step); err != nil {
+			t.Fatal(err)
+		}
+		if got := b.registers[0x06]; got&0x06 != want || got&^0x06 != 0x56&^0x06 {
+			t.Fatalf("step %d left register 0x06 at %#02x", step, got)
+		}
+	}
+	if err := tuner.SetLoopThrough(-1); err == nil {
+		t.Fatal("step -1 was taken")
+	}
+}
+
+// A tune sets the gain in register 0x06 and must leave the loop-through bits,
+// which are the fed tuner's level.
+func TestTuningKeepsTheLoopThrough(t *testing.T) {
+	b := newBench()
+	tuner := &Tuner{bus: b}
+	if err := tuner.SetLoopThrough(3); err != nil {
+		t.Fatal(err)
+	}
+	if err := tuner.setAGC(); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.registers[0x06] & 0x06; got != 0x06 {
+		t.Fatalf("register 0x06 left the loop-through at %#02x", got)
+	}
+}

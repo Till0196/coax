@@ -45,6 +45,10 @@ var TuningProperties = map[string]bool{
 	// GainProperty and gain.go.
 	"GAIN": true,
 	"LNA":  true,
+	// The level of the tuner's own loop-through output. No driver takes it:
+	// this program applies it itself on the boards whose tuner has one, and
+	// the Linux backend passes it over. See LoopThroughProperty.
+	LoopThroughProperty: true,
 	// The DiSEqC position on the lead. Like LNB it is not a property any
 	// driver takes: it is a message put on the lead before the tune, and the
 	// backend that can send one reads it from here. See diseqc.go.

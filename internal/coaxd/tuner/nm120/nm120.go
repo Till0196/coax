@@ -100,18 +100,28 @@ func (tuner *Tuner) Initialize() error {
 	if err := tuner.finish(); err != nil {
 		return err
 	}
-	// The loop-through gain, which the initialization table leaves at 0xeb: 0xf8
-	// with the gain's code in the low two bits, 3 being the maximum. It is the
-	// level handed to whatever is chained on the aerial lead after this board,
-	// not this tuner's own gain, so it is not offered as a setting.
-	return tuner.write(loopThroughRegister, loopThroughMaximum, 1)
+	// The loop-through gain, which the initialization table leaves at 0xeb, is
+	// the level handed to the tuner fed from this one, not this tuner's own.
+	return tuner.SetLoopThrough(defaultLoopThrough)
 }
 
-// The loop-through gain register and the value it is left at.
+// The loop-through gain register: 0xf8 with the gain's code in the low two
+// bits, 3 the strongest and 0 the weakest.
 const (
 	loopThroughRegister = 0x0a
-	loopThroughMaximum  = 0xf8 | 3
+	loopThroughBase     = 0xf8
+	// defaultLoopThrough is the step Initialize leaves, the strongest.
+	defaultLoopThrough = 0
 )
+
+// SetLoopThrough sets the loop-through gain, step 0 the strongest and 3 the
+// weakest.
+func (tuner *Tuner) SetLoopThrough(step int) error {
+	if step < 0 || step > 3 {
+		return fmt.Errorf("NM120 loop-through step %d is outside 0..3", step)
+	}
+	return tuner.write(loopThroughRegister, uint32(loopThroughBase|(3-step)), 1)
+}
 
 // The four parts this driver recognises, and what their chip identity reads as.
 // The masks are not all the same width, so each part carries its own.

@@ -161,6 +161,7 @@ USBの受け渡し用のソケット（`--usb-socket`）は、HTTPのソケッ�
 | `rolloff` | `ROLLOFF` |
 | `gain` | `GAIN` |
 | `lna` | `LNA` |
+| `loop_through` | `LOOP_THROUGH` |
 
 `gain`と`lna`は別のキーとしてクエリの解析を通りますが、[同じ設定](channel-files.md#gainとlna)なので両方指定すると選局の直前にエラーになります。
 
@@ -264,7 +265,9 @@ leaseを持ったまま同じチューナーを指定して選局し直すと、
   "lnb":  {"levels": ["off","low","high"], "low": "11V", "high": "15V", "shared": "card"},
   // gain。"switch"は入切だけ（min／max／auto）、"steps"はdBの段（最も近い段に合わせる）。
   // deliveriesがあれば、その方式のときだけ効く（片側の入力にだけ増幅器があるデバイス）。
-  "gain": {"kind": "steps", "decibels": [0, 1, 2, 3], "deliveries": ["ISDB-S"]}
+  "gain": {"kind": "steps", "decibels": [0, 1, 2, 3], "deliveries": ["ISDB-S"]},
+  // loop_through。"steps"はmax／high／mid／lowの4段、"switch"は入切だけ（lowが切、それ以外が入）。
+  "loop_through": {"kind": "steps"}
 }
 ```
 

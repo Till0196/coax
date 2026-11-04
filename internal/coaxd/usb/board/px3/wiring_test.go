@@ -456,3 +456,21 @@ func TestTheLNBSupplyRunsOppositeWaysOnTheTwoGenerations(t *testing.T) {
 		}
 	}
 }
+
+// The V2's two tuners both have four levels, the FC0012 is on or off, and the
+// QM1D1B0004 has no loop-through output.
+func TestTheLoopThroughIsListedWhereTheTunerHasOne(t *testing.T) {
+	v2 := Layout(usbio.ID{Vendor: 0x0b06, Product: 0x0006})
+	for _, index := range []int{terrestrial, satellite} {
+		if loop := v2[index].Controls.LoopThrough; loop == nil || loop.Switch {
+			t.Errorf("the V2's tuner %d lists %+v, want four levels", index, loop)
+		}
+	}
+	w3 := Layout(usbio.ID{Vendor: 0x0b06, Product: 0x0005})
+	if loop := w3[terrestrial].Controls.LoopThrough; loop == nil || !loop.Switch {
+		t.Errorf("the FC0012 lists %+v, want on or off", loop)
+	}
+	if loop := w3[satellite].Controls.LoopThrough; loop != nil {
+		t.Errorf("the QM1D1B0004 lists %+v, want none", loop)
+	}
+}

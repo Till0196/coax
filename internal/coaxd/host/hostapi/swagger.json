@@ -190,6 +190,9 @@
                     },
                     "lnb": {
                         "$ref": "#/components/schemas/hostapi.LNBControl"
+                    },
+                    "loop_through": {
+                        "$ref": "#/components/schemas/hostapi.LoopThroughControl"
                     }
                 },
                 "type": "object"
@@ -266,6 +269,16 @@
                     },
                     "shared": {
                         "description": "Shared is \"board\" or \"card\" where one supply feeds more than this tuner.",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "hostapi.LoopThroughControl": {
+                "description": "LoopThrough is present where loop_through is honoured.",
+                "properties": {
+                    "kind": {
+                        "description": "Kind is \"switch\" for an output that is on or off (max on, low off) and\n\"steps\" for one with the four levels max, high, mid and low.",
                         "type": "string"
                     }
                 },
@@ -1178,6 +1191,14 @@
                         }
                     },
                     {
+                        "description": "level of the tuner's own loop-through output",
+                        "in": "query",
+                        "name": "loop_through",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
                         "description": "the supply on a satellite lead: off, low or high",
                         "in": "query",
                         "name": "lnb_power",
@@ -1404,6 +1425,14 @@
                         "description": "front-end gain: auto, min, max, or a level with its unit such as +13dB",
                         "in": "query",
                         "name": "gain",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "description": "level of the tuner's own loop-through output: max, high, mid or low",
+                        "in": "query",
+                        "name": "loop_through",
                         "schema": {
                             "type": "string"
                         }

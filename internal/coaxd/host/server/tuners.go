@@ -195,7 +195,7 @@ func (s *Server) measureInto(described *hostapi.Tuner, id string) {
 // controls renders what a channel may set on a tuner, nothing where there is
 // nothing to set.
 func controls(known device.Controls) *hostapi.Controls {
-	if known.LNB == nil && known.Gain == nil {
+	if known.LNB == nil && known.Gain == nil && known.LoopThrough == nil {
 		return nil
 	}
 	rendered := &hostapi.Controls{}
@@ -216,6 +216,13 @@ func controls(known device.Controls) *hostapi.Controls {
 			Decibels:   append([]float64(nil), gain.Decibels...),
 			Deliveries: append([]string(nil), gain.Deliveries...),
 		}
+	}
+	if loop := known.LoopThrough; loop != nil {
+		kind := "steps"
+		if loop.Switch {
+			kind = "switch"
+		}
+		rendered.LoopThrough = &hostapi.LoopThroughControl{Kind: kind}
 	}
 	return rendered
 }
@@ -323,6 +330,7 @@ func measurement(reading device.Measurement) *float64 {
 //	@Param			rolloff			query		string	false	"ROLLOFF"
 //	@Param			lna				query		string	false	"LNA"
 //	@Param			gain			query		string	false	"front-end gain: auto, min, max, or a level with its unit such as +13dB"
+//	@Param			loop_through	query		string	false	"level of the tuner's own loop-through output: max, high, mid or low"
 //	@Param			lnb_power		query		string	false	"the supply on a satellite lead: off, low or high. Nothing is fed when it is not given"
 //	@Param			lnbf			query		string	false	"the low-noise block on the dish, when freq is a downlink frequency"
 //	@Param			lock_timeout	query		string	false	"how long to wait for a lock, as a duration"

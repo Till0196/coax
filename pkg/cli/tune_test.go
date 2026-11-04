@@ -489,3 +489,19 @@ func TestChannelPropertiesNamesTheWholePlan(t *testing.T) {
 		}
 	}
 }
+
+func TestTheLoopThroughFlagBecomesAProperty(t *testing.T) {
+	properties, err := channelProperties(channelRequest{system: "ISDBS", frequency: "1318000", loopThrough: " Low "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if properties["LOOP_THROUGH"] != "low" {
+		t.Errorf("--loop-through Low became %q", properties["LOOP_THROUGH"])
+	}
+	if _, err := channelProperties(channelRequest{system: "ISDBS", frequency: "1318000", loopThrough: "-8dB"}); err == nil {
+		t.Error("a level in decibels was taken")
+	}
+	if _, err := channelProperties(channelRequest{system: "ISDBS", frequency: "1318000", loopThrough: "low", extra: map[string]string{"LOOP_THROUGH": "max"}}); err == nil {
+		t.Error("--loop-through and -P LOOP_THROUGH were both taken")
+	}
+}

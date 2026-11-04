@@ -320,3 +320,28 @@ func TestSyncIsAControlAndTakesOnlyOnAndOff(t *testing.T) {
 		t.Error("sync=maybe should have been refused")
 	}
 }
+
+// The loop-through level reaches the tuner rather than being set aside with
+// the service keys, and a misspelling is refused before a tuner is chosen.
+func TestTheLoopThroughReachesTheTuner(t *testing.T) {
+	for _, query := range []string{
+		"system=ISDBS&freq=1318000&loop_through=low",
+		"system=ISDBS&freq=1318000&LOOP_THROUGH=low",
+	} {
+		request, err := parse(t, query)
+		if err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+		if request.Properties[tuning.LoopThroughProperty] != "low" || slices.Contains(request.Ignored, tuning.LoopThroughProperty) {
+			t.Errorf("%s became %v, ignoring %v", query, request.Properties, request.Ignored)
+		}
+	}
+	for _, query := range []string{
+		"system=ISDBS&freq=1318000&loop_through=-8dB",
+		"system=ISDBS&freq=1318000&loop_through=low&LOOP_THROUGH=max",
+	} {
+		if _, err := parse(t, query); err == nil {
+			t.Errorf("%s was accepted", query)
+		}
+	}
+}

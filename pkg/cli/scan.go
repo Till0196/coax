@@ -74,6 +74,7 @@ func runScan(arguments []string, stdout io.Writer, stderr io.Writer) error {
 	streamID := flags.String("stream-id", "", "relative stream to select: an ISDB-S TSID, a DVB-T2 pipe, or a TSID multiplexed into a TSMF carrier")
 	lnbPower := flags.String("lnb-power", "", "LNB supply for a satellite channel: off, low or high (11 and 13 mean low, 15 and 18 mean high); with --discover or a channel file it goes on every satellite channel that names no VOLTAGE of its own; none when omitted, as recpt1 and recisdb do")
 	gain := flags.String("gain", "", "front-end gain, on hardware that has a setting: auto, min, max, or a level with its unit such as +13dB; the tuner's own default when omitted")
+	loopThrough := flags.String("loop-through", "", "level of this tuner's own loop-through output, the signal it hands on to the tuner fed from it, on hardware that has one: max, high, mid or low; the tuner's own default when omitted")
 	satNumber := flags.String("sat-number", "", "position on a DiSEqC switch, 0 to 3, when the dish reaches this tuner through one; nothing is sent when this is omitted")
 	lnbf := flags.String("lnbf", "", "low-noise block on the dish, when --freq is a downlink frequency rather than an intermediate one: UNIVERSAL, EXTENDED, ENHANCED, STANDARD, DBS, C-BAND, 110BS, JCSAT3A, JCSAT4B")
 	property := newProperties(flags)
@@ -92,7 +93,7 @@ func runScan(arguments []string, stdout io.Writer, stderr io.Writer) error {
 	}
 	named := channelRequest{
 		system: *system, channel: *channel, frequency: *frequency, streamID: *streamID,
-		lnbPower: *lnbPower, lnbf: *lnbf, gain: *gain, satNumber: *satNumber,
+		lnbPower: *lnbPower, lnbf: *lnbf, gain: *gain, loopThrough: *loopThrough, satNumber: *satNumber,
 		extra: property.values,
 	}
 	if err := options.validate(); err != nil {

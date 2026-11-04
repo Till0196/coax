@@ -153,6 +153,16 @@ type Controls struct {
 	LNB *LNBControl `json:"lnb,omitempty"`
 	// Gain is present where gain is honoured.
 	Gain *GainControl `json:"gain,omitempty"`
+	// LoopThrough is present where loop_through is honoured.
+	LoopThrough *LoopThroughControl `json:"loop_through,omitempty"`
+}
+
+// LoopThroughControl is what loop_through can ask of this tuner: the level of
+// its own loop-through output, handed on to the tuner fed from it.
+type LoopThroughControl struct {
+	// Kind is "switch" for an output that is on or off (max on, low off) and
+	// "steps" for one with the four levels max, high, mid and low.
+	Kind string `json:"kind"`
 }
 
 // LNBControl is what lnb_power can ask of this tuner.

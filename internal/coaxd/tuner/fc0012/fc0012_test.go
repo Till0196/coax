@@ -307,3 +307,23 @@ func TestSignalStrengthFollowsTheReference(t *testing.T) {
 		t.Errorf("the level is %v dBm, want -37", strength)
 	}
 }
+
+func TestSetLoopThroughOnlyMovesBitZero(t *testing.T) {
+	bus := newFakeBus()
+	tuner := newTestTuner(bus)
+	if err := tuner.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for _, on := range []bool{true, false} {
+		if err := tuner.SetLoopThrough(on); err != nil {
+			t.Fatal(err)
+		}
+		want := byte(0x6e)
+		if on {
+			want = 0x6f
+		}
+		if got := bus.registers[registerLoopThrough]; got != want {
+			t.Errorf("on=%v left register 0x09 at %#02x, want %#02x", on, got, want)
+		}
+	}
+}

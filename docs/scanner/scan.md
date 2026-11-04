@@ -77,7 +77,7 @@
 ./coax scan --system DVBC/ANNEX_A --freq 471000000 -P SYMBOL_RATE=5274000
 ```
 
-`--system`、`--ch`、`--freq`、`--stream-id`、`--lnb-power`、`--lnbf`、`--gain`、`--sat-number`、`-P NAME=VALUE`が使えます。
+`--system`、`--ch`、`--freq`、`--stream-id`、`--lnb-power`、`--lnbf`、`--gain`、`--loop-through`、`--sat-number`、`-P NAME=VALUE`が使えます。
 周波数で指定するときは`--system`も要ります。
 `--ch`にチャンネル名や衛星のストリーム名を書いたときは、そこから伝送方式も周波数も決まるので要りません。
 

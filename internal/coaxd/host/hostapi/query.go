@@ -68,6 +68,7 @@ var shorthands = map[string]string{
 	"rolloff":      "ROLLOFF",
 	"lna":          tuning.LNAProperty,
 	"gain":         tuning.GainProperty,
+	"loop_through": tuning.LoopThroughProperty,
 }
 
 // The parameters that steer the request rather than describe the channel. They
@@ -205,6 +206,9 @@ func ParseRequest(query url.Values, defaults Request) (Request, error) {
 	// Likewise gain. Whether a board has one is the board's to refuse; this only
 	// catches a spelling that is no setting at all.
 	if _, err := tuning.ParseGain(properties); err != nil {
+		return Request{}, err
+	}
+	if _, _, err := tuning.ParseLoopThrough(properties); err != nil {
 		return Request{}, err
 	}
 

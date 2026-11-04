@@ -86,7 +86,7 @@ type TunerInfo struct {
 	// what the driver found rather than what it was asked for.
 	Settings []Setting
 	// Controls is what a channel may set on this tuner beside the channel itself:
-	// the supply on its aerial lead and its gain. Known from the model before the
+	// the supply on its aerial lead, its gain and its loop-through output. Known from the model before the
 	// board is opened, so that a client can offer only what will be honoured.
 	Controls Controls
 }
@@ -100,6 +100,17 @@ type Controls struct {
 	// Gain is the tuner's amplifier setting. Nil where it has none, which a channel
 	// asking for one is refused for (tuning.ErrNoGain).
 	Gain *GainControl
+	// LoopThrough is the tuner's own loop-through output, the signal it hands on
+	// to the tuner fed from it. Nil where it has none.
+	LoopThrough *LoopThroughControl
+}
+
+// LoopThroughControl is what a tuner's loop-through output can be set to.
+type LoopThroughControl struct {
+	// Switch says the output is only on or off: max and the two levels below it
+	// turn it on, low turns it off, and a channel that does not say leaves it off.
+	// Otherwise it has the four levels.
+	Switch bool
 }
 
 // LNBControl is what a tuner's LNB supply can be set to.

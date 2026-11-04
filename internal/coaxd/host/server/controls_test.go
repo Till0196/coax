@@ -43,3 +43,12 @@ func TestControlsSayOnlyWhatWillBeHonoured(t *testing.T) {
 		t.Errorf("stepped gain %+v", shared.Gain)
 	}
 }
+
+func TestTheLoopThroughIsAStepOrASwitch(t *testing.T) {
+	if got := controls(device.Controls{LoopThrough: &device.LoopThroughControl{}}); got == nil || got.LoopThrough == nil || got.LoopThrough.Kind != "steps" {
+		t.Errorf("four levels rendered as %+v", got)
+	}
+	if got := controls(device.Controls{LoopThrough: &device.LoopThroughControl{Switch: true}}); got == nil || got.LoopThrough == nil || got.LoopThrough.Kind != "switch" {
+		t.Errorf("on and off rendered as %+v", got)
+	}
+}

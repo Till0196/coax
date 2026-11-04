@@ -28,6 +28,9 @@ func TestTuningPropertiesMatchTheLinuxBackend(t *testing.T) {
 		// Nor this one: it is a message put on the lead before the tune
 		// rather than anything the demodulator is told. See diseqc.go.
 		SatNumberProperty,
+		// Nor this one: the kernel has no loop-through setting. See
+		// loopthrough.go.
+		LoopThroughProperty,
 	}
 	slices.Sort(backend)
 	ours := slices.Sorted(maps.Keys(TuningProperties))

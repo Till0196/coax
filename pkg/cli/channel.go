@@ -33,8 +33,10 @@ type channelRequest struct {
 	lnbPower  string
 	lnbf      string
 	gain      string
-	satNumber string
-	extra     map[string]string
+	// loopThrough is the tuner's own loop-through output level.
+	loopThrough string
+	satNumber   string
+	extra       map[string]string
 }
 
 // given reports whether anything here describes a channel, which is what tells
@@ -115,6 +117,16 @@ func channelProperties(request channelRequest) (map[string]string, error) {
 			return nil, err
 		}
 		properties["GAIN"] = setting
+	}
+	if request.loopThrough != "" {
+		if written["LOOP_THROUGH"] {
+			return nil, fmt.Errorf("--loop-through and -P LOOP_THROUGH are two ways of saying the same thing; give one of them")
+		}
+		setting, err := normalizeLoopThrough(request.loopThrough)
+		if err != nil {
+			return nil, err
+		}
+		properties["LOOP_THROUGH"] = setting
 	}
 	if system != "" {
 		properties["DELIVERY_SYSTEM"] = system
@@ -237,6 +249,17 @@ func normalizeGain(value string) (string, error) {
 		return "", fmt.Errorf("--gain %q is not a gain setting; the level is not a number of decibels", value)
 	}
 	return trimmed, nil
+}
+
+// normalizeLoopThrough checks the spelling only: whether the tuner has an
+// output to set is the daemon's to say.
+func normalizeLoopThrough(value string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	switch trimmed {
+	case "max", "high", "mid", "low":
+		return trimmed, nil
+	}
+	return "", fmt.Errorf("--loop-through %q is not a level; write max, high, mid or low", value)
 }
 
 func normalizeLNBPower(value string) (string, error) {

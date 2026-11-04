@@ -35,7 +35,7 @@ func BuildTuneProperties(properties map[string]string) ([]TuneProperty, uint32, 
 		"GUARD_INTERVAL", "HIERARCHY", "VOLTAGE", "POLARIZATION", "TONE",
 		"PILOT", "ROLLOFF", "STREAM_ID", tuning.ScramblingProperty,
 		tuning.GainProperty, tuning.LNAProperty,
-		tuning.SatNumberProperty,
+		tuning.SatNumberProperty, tuning.LoopThroughProperty,
 	}
 	// A channel asking for no supply is not overruled by its own polarization.
 	// Both land on dtvVoltage and the polarization is written second, so
@@ -66,6 +66,11 @@ func BuildTuneProperties(properties map[string]string) ([]TuneProperty, uint32, 
 		// The two gain spellings land on the same kernel property; whichever
 		// carried it, it is read once below.
 		if key == tuning.LNAProperty || key == tuning.GainProperty {
+			seen[key] = true
+			continue
+		}
+		// The kernel has no loop-through setting, so the level is passed over.
+		if key == tuning.LoopThroughProperty {
 			seen[key] = true
 			continue
 		}

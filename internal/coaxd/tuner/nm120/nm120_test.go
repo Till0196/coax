@@ -19,7 +19,7 @@ func TestInitializationAndTuningOnlyAddressTheRFTuner(t *testing.T) {
 		t.Fatal(err)
 	}
 	writes := bus.tunnelled()
-	if len(writes) == 0 || writes[len(writes)-1] != [2]uint16{loopThroughRegister, loopThroughMaximum} {
+	if len(writes) == 0 || writes[len(writes)-1] != [2]uint16{loopThroughRegister, loopThroughBase | 3} {
 		t.Fatal("RF initialization did not complete")
 	}
 	if err := tuner.Tune(557143000); err != nil {
@@ -162,5 +162,22 @@ func TestTheMasksAreNotInterchangeable(t *testing.T) {
 	// With the narrower mask the two would be indistinguishable.
 	if nm130v&0x000fff00 != nm130.id&0x000fff00 {
 		t.Error("this test is about the narrow mask confusing the two")
+	}
+}
+
+func TestLoopThroughStepsRunFromTheStrongest(t *testing.T) {
+	bus := &fakeBus{identity: 0x00013100}
+	tuner := New(bus, testDemod)
+	for step, code := range []uint16{3, 2, 1, 0} {
+		if err := tuner.SetLoopThrough(step); err != nil {
+			t.Fatal(err)
+		}
+		writes := bus.tunnelled()
+		if got := writes[len(writes)-1]; got != [2]uint16{loopThroughRegister, loopThroughBase | code} {
+			t.Fatalf("step %d wrote %#x", step, got)
+		}
+	}
+	if err := tuner.SetLoopThrough(4); err == nil {
+		t.Fatal("step 4 was taken")
 	}
 }

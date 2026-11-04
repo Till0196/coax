@@ -105,6 +105,22 @@ func (tuner *Tuner) configure() error {
 	return s.err
 }
 
+// The loop-through gain is register 0x06's bits 2:1, 0 the strongest and 3
+// the weakest. It is the level handed to the tuner fed from this one.
+const (
+	loopThroughRegister = 0x06
+	loopThroughMask     = 0x06
+)
+
+// SetLoopThrough sets the loop-through gain, step 0 the strongest and 3 the
+// weakest.
+func (tuner *Tuner) SetLoopThrough(step int) error {
+	if step < 0 || step > 3 {
+		return fmt.Errorf("TDA20142 loop-through step %d is outside 0..3", step)
+	}
+	return tuner.masked(loopThroughRegister, byte(step)<<1, loopThroughMask)
+}
+
 // calibrateOscillator pulses the local oscillator calibration. Register 0x18's
 // bit 0 is the trigger: it is raised, the two enables around it are set, and
 // then it is dropped again, which is what starts the run.
@@ -446,7 +462,9 @@ func (tuner *Tuner) setAGC() error {
 	if err != nil {
 		return err
 	}
-	value &= 0x48
+	// The loop-through bits are kept: they are the fed tuner's level, not part
+	// of this tuner's gain.
+	value &= 0x48 | loopThroughMask
 	if a2 != 4 {
 		value |= 0x80
 	}

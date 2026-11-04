@@ -18,8 +18,8 @@ import (
 // amplifiers, the FC0012's twenty-four step ladder, the RT710's fine gain), and
 // the one known to have more, the PX-W3U3 V2's satellite side, is not ported.
 //
-// The loop-through gain some of these tuners carry is deliberately not here: it
-// is the level handed to the next receiver down the lead.
+// The loop-through gain some of these tuners carry is a setting of its own,
+// LoopThroughProperty: it is the level handed to the tuner fed from this one.
 const GainProperty = "GAIN"
 
 // GainKind is which of the ways of asking a channel used.

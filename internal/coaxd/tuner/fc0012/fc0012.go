@@ -140,3 +140,17 @@ func (tuner *Tuner) Initialize() error {
 	}
 	return nil
 }
+
+// SetLoopThrough drives or stops the aerial loop-through output, register
+// 0x09's bit 0.
+func (tuner *Tuner) SetLoopThrough(on bool) error {
+	value, err := tuner.read(registerLoopThrough)
+	if err != nil {
+		return err
+	}
+	value &^= 0x01
+	if on {
+		value |= 0x01
+	}
+	return tuner.write(registerLoopThrough, value)
+}

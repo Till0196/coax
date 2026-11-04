@@ -44,6 +44,7 @@ const readSize = 256 * 1024
 //	@Param			rolloff			query		string	false	"ROLLOFF"
 //	@Param			lna				query		string	false	"LNA"
 //	@Param			gain			query		string	false	"front-end gain"
+//	@Param			loop_through	query		string	false	"level of the tuner's own loop-through output"
 //	@Param			lnb_power		query		string	false	"the supply on a satellite lead: off, low or high"
 //	@Param			lnbf			query		string	false	"the low-noise block on the dish"
 //	@Param			lock_timeout	query		string	false	"how long to wait for a lock, as a duration"

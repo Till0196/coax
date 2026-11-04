@@ -36,6 +36,14 @@
 どのチューナーに何が書けるかは`/tuners`の`controls`に出ます（[tuner-host.md](tuner-host.md#tunersid)）。
 定義ファイル側の`LNA`キーも同じ設定として読みます（[channel-files.md](channel-files.md#gainとlna)）。
 
+## ループスルー出力（`--loop-through`）
+
+`max`、`high`、`mid`、`low`のどれかを取ります。
+チューナーが同一ハード内の別のチューナーへ分けて送る信号の強さで、そのチューナー自身の受信は変わりません。
+送られる側の入力が強すぎるときは、送る側のチューナーで下げます。
+効くのは、PX-W3U3 V2と、PX-S3U、S3U2、W3U2、W3U3の地上側だけです。
+詳しくは[channel-files.md](channel-files.md#loop_through)にあります。
+
 ## チューナーの優先順位（`--priority`）
 
 整数で、既定は0です。
