@@ -131,3 +131,32 @@ func TestBothBridgesOfAnEnclosureNameItTheSame(t *testing.T) {
 		t.Errorf("a bridge without its sibling names an enclosure %q", got)
 	}
 }
+
+// One enclosure supply switches the line on both bridges, and goes off only
+// when the last holder lets go.
+func TestTheEnclosureSupplyIsSwitchedOnBothBridges(t *testing.T) {
+	first, second := &frontendTrace{}, &frontendTrace{}
+	supply := enclosureSupply([]boardControl{first, second}, 0x00)
+	if err := supply.Acquire(); err != nil {
+		t.Fatal(err)
+	}
+	if err := supply.Acquire(); err != nil {
+		t.Fatal(err)
+	}
+	if err := supply.Release(); err != nil {
+		t.Fatal(err)
+	}
+	for _, bridge := range []*frontendTrace{first, second} {
+		if !reflect.DeepEqual(bridge.gpio, [][2]byte{{0x00, lnbSupplyMask}}) {
+			t.Fatalf("one holder left, a bridge saw %v", bridge.gpio)
+		}
+	}
+	if err := supply.Release(); err != nil {
+		t.Fatal(err)
+	}
+	for _, bridge := range []*frontendTrace{first, second} {
+		if !reflect.DeepEqual(bridge.gpio, [][2]byte{{0x00, lnbSupplyMask}, {lnbSupplyMask, lnbSupplyMask}}) {
+			t.Fatalf("the last holder gone, a bridge saw %v", bridge.gpio)
+		}
+	}
+}

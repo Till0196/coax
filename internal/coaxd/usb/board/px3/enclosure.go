@@ -300,7 +300,30 @@ func initializeEnclosure(holds []*sharedBridge, product uint16) (*enclosure, err
 		pair.frontEnds = ends
 		built.pairs[at] = pair
 	}
+	// The W3U2 and W3U3 feed one lead from both bridges' supply lines, so the
+	// supply is one for the enclosure and goes on or off on both bridges.
+	if !sharedControl && len(holds) == 2 {
+		supply := enclosureSupply([]boardControl{holds[0].bridge, holds[1].bridge}, wiringFor(product).lnbSupplyOn)
+		built.pairs[0].lnb = supply
+		built.pairs[1].lnb = supply
+	}
 	return built, nil
+}
+
+// enclosureSupply is one LNB supply switched on every bridge of an enclosure.
+func enclosureSupply(bridges []boardControl, on byte) *device.Latch {
+	write := func(value byte) error {
+		for _, bridge := range bridges {
+			if err := bridge.SetGPIO(value, lnbSupplyMask); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return device.NewLatch(
+		func() error { return write(on) },
+		func() error { return write(^on & lnbSupplyMask) },
+	)
 }
 
 // release drops one board's hold on the enclosure.
