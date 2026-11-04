@@ -166,6 +166,7 @@ S3U2は地上RF初期化後と衛星復調器初期化後に、地上チュー�
 ASV52xxブリッジ用の`asv5211-firmware.bin`（16384バイト）が必要です。
 入手先は[firmware.md](../setup/firmware.md)にあります。
 PLEX公式のLinuxドライバーのパッケージを`fwextract`に渡すと取り出せます。
+PLEXのサイトでは404になっているため、Internet Archiveから取得できます（手順は[firmware.md](../setup/firmware.md)にあります）。
 Windows版のドライバーのパッケージからは取り出せません。
 ファームウェアはOSに関係なく同じなので、Windowsで使うときもLinux版から取り出したものを置いてください。
 TC90522とチューナーICにはファームウェアは要りません。

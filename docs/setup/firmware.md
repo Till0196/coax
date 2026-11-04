@@ -127,12 +127,14 @@ PLEXの[ダウンロードページ](https://plex-net.co.jp/download/)に各製�
 
 **`asv5211-firmware.bin`**（`px3`）
 
-配布ページはPLEXのサイトから削除されていますが、ファイルは現在もダウンロードできます。
+PLEXのサイトのファイル（`https://plex-net.co.jp/plex/PX-SERIES_ver.1.0_Linux_Driver.zip`）は404になっているため、Internet Archiveから取得できます。
 
 ```sh
-curl -O https://plex-net.co.jp/plex/PX-SERIES_ver.1.0_Linux_Driver.zip
+curl -L -o PX-SERIES_ver.1.0_Linux_Driver.zip https://web.archive.org/web/20130328153557id_/http://plex-net.co.jp/plex/PX-SERIES_ver.1.0_Linux_Driver.zip
 ./fwextract PX-SERIES_ver.1.0_Linux_Driver.zip   # b45d510200a1690b3ca358d93de13f40e1d3567b663c17e773349ad96f597aa8
 ```
+
+zipのSHA-256は`11a84eaef0157ac08c0b4128aa622a625e8914a28c59ef06e76378ee6094c5de`です。
 
 当時の配布ページはInternet Archiveに残っており、[PX-W3U3のもの](https://web.archive.org/web/20150211005046/http://www.plex-net.co.jp/product/pxw3u3_download.html)と[PX-W3PEのもの](https://web.archive.org/web/20150309023323/http://www.plex-net.co.jp/product/pxw3pe_download.html)のどちらも同じzipを指しています。
 
