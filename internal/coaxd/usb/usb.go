@@ -112,6 +112,9 @@ type Detected struct {
 	Port string
 	// Deliveries lists every delivery system some tuner of the board reaches.
 	Deliveries []string
+	// Enclosure is the same for every board of one enclosure, and empty for a
+	// board that stands alone. See usbdev.Backend.Enclosure.
+	Enclosure string
 }
 
 // Detect lists the attached USB devices a board driver recognises, so a caller
@@ -136,10 +139,18 @@ func Detect() ([]Detected, error) {
 				Serial:      candidate.Serial,
 				Port:        candidate.Port,
 				Deliveries:  append([]string(nil), backend.Deliveries...),
+				Enclosure:   enclosureOf(backend, attached, candidate),
 			})
 		}
 	}
 	return detected, nil
+}
+
+func enclosureOf(backend usbdev.Backend, attached []usbio.Attached, own usbio.Attached) string {
+	if backend.Enclosure == nil {
+		return ""
+	}
+	return backend.Enclosure(attached, own)
 }
 
 // coldBootTimeout bounds the wait for booted boards to come back under their

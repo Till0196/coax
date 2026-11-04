@@ -46,6 +46,11 @@ type Backend struct {
 	// list confirmed. Nil for a board whose layout cannot be told from its
 	// identifiers.
 	Layout func(id usbio.ID) []device.TunerInfo
+	// Enclosure names the enclosure a device is one of the boards of, from the
+	// attached devices and without opening any: the same for every board of
+	// one enclosure, and empty for a board that stands alone. Nil for a backend
+	// whose boards are never more than one to an enclosure.
+	Enclosure func(attached []usbio.Attached, own usbio.Attached) string
 	// Open claims the USB device.
 	Open func(options device.Options) (device.Board, error)
 }

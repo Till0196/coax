@@ -315,6 +315,26 @@ func (enclosure *enclosure) release() error {
 	return releaseBridgesLocked(enclosure.holds)
 }
 
+// enclosureName is the location of an enclosure's first bridge, the same for
+// both of its bridges, worked out from the attached devices without opening
+// either. Empty for a product with one bridge, and for a bridge whose sibling
+// cannot be told.
+func enclosureName(attached []usbio.Attached, own usbio.Attached) string {
+	if own.ID.Vendor != 0x0b06 || !twoBridges(own.ID.Product) {
+		return ""
+	}
+	sibling, err := enclosureSibling(attached, own.Location, own.ID.Product)
+	if err != nil {
+		return ""
+	}
+	return enclosureLocations(own.Location, sibling)[0]
+}
+
+// twoBridges reports whether a product is an enclosure of two bridges.
+func twoBridges(product uint16) bool {
+	return product == 0x0004 || product == 0x0005 || product == v2Product
+}
+
 // siblingOf finds the other bridge of the same product behind the same hub.
 func siblingOf(location string, product uint16) (string, error) {
 	attached, err := usbio.Devices()

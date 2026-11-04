@@ -91,6 +91,7 @@ func (s *Server) describeBoard(board pool.BoardInfo) hostapi.Board {
 		Location:    board.Location,
 		Serial:      board.Serial,
 		Port:        board.Port,
+		Enclosure:   board.Enclosure,
 		Deliveries:  board.Deliveries,
 		Open:        board.Open,
 		Probed:      board.Probed,

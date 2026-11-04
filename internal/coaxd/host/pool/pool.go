@@ -86,6 +86,9 @@ type Detected struct {
 	Location string
 	// USB is the vendor and product, zero for anything that is not USB.
 	USB usbio.ID
+	// Enclosure is the same for every board of one enclosure, and empty for a
+	// board that stands alone.
+	Enclosure string
 	// Deliveries are the delivery systems the hardware is known to reach, before
 	// it is opened and asked.
 	Deliveries []string

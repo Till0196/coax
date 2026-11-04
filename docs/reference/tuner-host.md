@@ -247,6 +247,9 @@ leaseを持ったまま同じチューナーを指定して選局し直すと、
 デバイスの配列です。
 各デバイスは`name`、`naming`、`stable`、`backend`、`description`、`location`（bus/address）、`serial`、`port`、`deliveries`、`open`、`probed`、`probe_error`、`tuners`を持ちます。
 `location`は`lsusb`と照合するために出力しますが、カーネルが再割り当てするので名前には含めません。
+1つの筐体に2つのUSBデバイスがある機器（PX-W3U2・W3U3・W3U3 V2）は、`enclosure`も持ちます。
+同じ筐体のデバイスは同じ値で、デバイスを開かずにUSBの一覧から決まります。
+1台で完結するデバイスには含まれません。
 
 ### `/tuners/{id}`
 
@@ -261,7 +264,7 @@ leaseを持ったまま同じチューナーを指定して選局し直すと、
 ```jsonc
 "controls": {
   // lnb_powerに指定できる値。offが無ければ給電を切れない。lowとhighの電圧（入切だけのデバイスは無し）。
-  // sharedは給電線を他のチューナーと共有する単位（"board"か"card"）。
+  // sharedは給電線を他のチューナーと共有する単位。"board"はデバイス、"card"はPCIeのカードかUSBの筐体（enclosureが同じデバイス）。
   "lnb":  {"levels": ["off","low","high"], "low": "11V", "high": "15V", "shared": "card"},
   // gain。"switch"は入切だけ（min／max／auto）、"steps"はdBの段（最も近い段に合わせる）。
   // deliveriesがあれば、その方式のときだけ効く（片側の入力にだけ増幅器があるデバイス）。

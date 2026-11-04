@@ -122,9 +122,9 @@ type LNBControl struct {
 	// "18V"). Both empty for a supply that is only on or off.
 	Low, High string
 	// Shared says the supply is one line for more than the tuner: "board" (a USB
-	// board's every satellite tuner), "card" (a PCIe card's). A channel on one
-	// tuner switching it on feeds the others' leads too. Empty for a supply of
-	// the tuner's own.
+	// board's every satellite tuner), "card" (a PCIe card's, or a USB
+	// enclosure's whose boards share it). A channel on one tuner switching it on
+	// feeds the others' leads too. Empty for a supply of the tuner's own.
 	Shared string
 }
 

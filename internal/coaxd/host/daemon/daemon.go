@@ -533,6 +533,7 @@ func usbBoards() ([]pool.Detected, error) {
 			Port:        one.Port,
 			Location:    one.Device,
 			USB:         one.ID,
+			Enclosure:   one.Enclosure,
 			Deliveries:  one.Deliveries,
 			Tuners:      usb.Layout(one.Backend, one.ID),
 		})

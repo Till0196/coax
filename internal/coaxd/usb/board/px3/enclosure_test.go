@@ -105,3 +105,29 @@ func TestParentPort(t *testing.T) {
 		}
 	}
 }
+
+// Both bridges of an enclosure name it the same, from the list alone; a
+// one-bridge product and a bridge whose sibling is missing name none.
+func TestBothBridgesOfAnEnclosureNameItTheSame(t *testing.T) {
+	v2 := usbio.ID{Vendor: 0x0b06, Product: v2Product}
+	s3u := usbio.ID{Vendor: 0x0b06, Product: 0x0003}
+	attached := []usbio.Attached{
+		{ID: v2, Location: "001:021", Port: "1-14.2"},
+		{ID: v2, Location: "001:020", Port: "1-14.1"},
+		{ID: s3u, Location: "001:030", Port: "1-15.1"},
+		{ID: s3u, Location: "001:031", Port: "1-15.2"},
+	}
+	for _, own := range attached[:2] {
+		if got := enclosureName(attached, own); got != "001:020" {
+			t.Errorf("%s names its enclosure %q, want 001:020", own.Location, got)
+		}
+	}
+	for _, own := range attached[2:] {
+		if got := enclosureName(attached, own); got != "" {
+			t.Errorf("a one-bridge %s names an enclosure %q", own.Location, got)
+		}
+	}
+	if got := enclosureName(attached[:1], attached[0]); got != "" {
+		t.Errorf("a bridge without its sibling names an enclosure %q", got)
+	}
+}

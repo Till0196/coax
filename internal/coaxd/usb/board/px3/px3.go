@@ -44,6 +44,7 @@ var Backend = usbdev.Backend{
 	Boot:        boot,
 	Supports:    Supports,
 	Layout:      Layout,
+	Enclosure:   enclosureName,
 	Open:        open,
 }
 
@@ -51,10 +52,15 @@ var Backend = usbdev.Backend{
 // this backend claims carries both.
 func Layout(id usbio.ID) []device.TunerInfo {
 	wired := wiringFor(id.Product)
-	// The supply is the enclosure's one line, in or out. The gain is the V2's
-	// external amplifiers (in or out, both tuners), or on the FC0012 boards the
-	// FC0012's ladder on the terrestrial tuner (frontend.GainLadder).
-	satelliteControls := device.Controls{LNB: &device.LNBControl{Off: true, Shared: "board"}}
+	// The supply is in or out, and an enclosure of two bridges feeds one lead
+	// from it. The gain is the V2's external amplifiers (in or out, both
+	// tuners), or on the FC0012 boards the FC0012's ladder on the terrestrial
+	// tuner (frontend.GainLadder).
+	supply := "board"
+	if twoBridges(id.Product) {
+		supply = "card"
+	}
+	satelliteControls := device.Controls{LNB: &device.LNBControl{Off: true, Shared: supply}}
 	terrestrialControls := device.Controls{}
 	// The loop-through output is each tuner's own: the V2's NM120 and TDA20142
 	// have four levels, the FC0012 is on or off, the QM1D1B0004 has none.

@@ -29,6 +29,9 @@ type BoardInfo struct {
 	Location string
 	Serial   string
 	Port     string
+	// Enclosure is the same for every board of one enclosure, and empty for a
+	// board that stands alone.
+	Enclosure string
 	// Deliveries is every delivery system some tuner of the board reaches.
 	Deliveries []string
 	// Open reports whether the pool is holding the board open right now.
@@ -91,6 +94,7 @@ func (s *Supervisor) describe(one entry, held *board) BoardInfo {
 		Location:    one.detected.Selector,
 		Serial:      one.detected.Serial,
 		Port:        one.detected.Port,
+		Enclosure:   one.detected.Enclosure,
 		Deliveries:  append([]string(nil), one.detected.Deliveries...),
 		Open:        held.Open(),
 		Exclusive:   one.detected.Exclusive,

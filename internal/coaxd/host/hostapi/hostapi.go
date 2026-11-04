@@ -36,6 +36,9 @@ type Board struct {
 	Location string `json:"location"`
 	Serial   string `json:"serial,omitempty"`
 	Port     string `json:"port,omitempty"`
+	// Enclosure is the same for every board of one enclosure -- the two bridges of
+	// a PX-W3U3 -- and absent for a board that stands alone.
+	Enclosure string `json:"enclosure,omitempty"`
 
 	// Deliveries is every delivery system some tuner of this board reaches.
 	Deliveries []string `json:"deliveries,omitempty"`

@@ -474,3 +474,14 @@ func TestTheLoopThroughIsListedWhereTheTunerHasOne(t *testing.T) {
 		t.Errorf("the QM1D1B0004 lists %+v, want none", loop)
 	}
 }
+
+// An enclosure of two bridges feeds one lead, and a board of one bridge its
+// own.
+func TestTheSupplyIsSharedByAnEnclosureOfTwoBridges(t *testing.T) {
+	for product, want := range map[uint16]string{0x0003: "board", 0x0004: "card", 0x0005: "card", v2Product: "card"} {
+		lnb := Layout(usbio.ID{Vendor: 0x0b06, Product: product})[satellite].Controls.LNB
+		if lnb == nil || lnb.Shared != want {
+			t.Errorf("product %#04x lists the supply %+v, want shared %q", product, lnb, want)
+		}
+	}
+}

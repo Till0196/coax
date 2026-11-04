@@ -17,6 +17,10 @@
                     "description": {
                         "type": "string"
                     },
+                    "enclosure": {
+                        "description": "Enclosure is the same for every board of one enclosure -- the two bridges of\na PX-W3U3 -- and absent for a board that stands alone.",
+                        "type": "string"
+                    },
                     "location": {
                         "description": "Location is the bus and address. Not part of the name: the kernel reassigns\nit.",
                         "type": "string"
