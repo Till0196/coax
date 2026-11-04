@@ -37,6 +37,7 @@ var Backend = usbdev.Backend{
 	IDs:         supportedIDs,
 	Supports:    Supports,
 	Layout:      Layout,
+	Enclosure:   enclosureName,
 	Open:        open,
 }
 
@@ -48,16 +49,21 @@ func Layout(id usbio.ID) []device.TunerInfo {
 	if !ok {
 		return nil
 	}
+	// The board's one supply line, in or out. The PX-MLT8PE has one satellite
+	// input for both of its devices, so there it is the enclosure's.
+	supply := "board"
+	if halves[id.Product] != 0 {
+		supply = "card"
+	}
 	descriptors := make([]device.TunerInfo, 0, len(layout))
 	for index := range layout {
 		descriptors = append(descriptors, device.TunerInfo{
 			Index:      index,
 			Name:       "CXD2858ER",
 			Deliveries: deliveries,
-			// The board's one supply line, in or out, and an amplifier in or out of
-			// circuit on every input.
+			// An amplifier in or out of circuit on every input.
 			Controls: device.Controls{
-				LNB:  &device.LNBControl{Off: true, Shared: "board"},
+				LNB:  &device.LNBControl{Off: true, Shared: supply},
 				Gain: &device.GainControl{},
 			},
 		})
@@ -119,6 +125,19 @@ var models = map[uint16]model{
 }
 
 var supportedIDs = usbio.IDs(0x0511, models)
+
+// halves pairs the two devices of a PX-MLT8PE, each with the other's product.
+var halves = map[uint16]uint16{0x0252: 0x0253, 0x0253: 0x0252}
+
+// enclosureName names a PX-MLT8PE's enclosure from its two devices behind one
+// hub. Empty for the other models.
+func enclosureName(attached []usbio.Attached, own usbio.Attached) string {
+	partner, ok := halves[own.ID.Product]
+	if !ok {
+		return ""
+	}
+	return plex.PartnerEnclosure(attached, own, partner)
+}
 
 // layouts gives each model's inputs in board order: the demodulator's 7-bit
 // address, the bridge I2C bus it sits on, and the bridge's port number.

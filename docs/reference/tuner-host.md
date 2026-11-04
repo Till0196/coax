@@ -247,7 +247,7 @@ leaseを持ったまま同じチューナーを指定して選局し直すと、
 デバイスの配列です。
 各デバイスは`name`、`naming`、`stable`、`backend`、`description`、`location`（bus/address）、`serial`、`port`、`deliveries`、`open`、`probed`、`probe_error`、`tuners`を持ちます。
 `location`は`lsusb`と照合するために出力しますが、カーネルが再割り当てするので名前には含めません。
-1つの筐体に2つのUSBデバイスがある機器（PX-W3U2・W3U3・W3U3 V2）は、`enclosure`も持ちます。
+1つの筐体に2つのUSBデバイスがある機器（PX-W3U2・W3U3・W3U3 V2・Q3U4・Q3PE4・Q3PE5・MLT8PE）は、`enclosure`も持ちます。
 同じ筐体のデバイスは同じ値で、デバイスを開かずにUSBの一覧から決まります。
 1台で完結するデバイスには含まれません。
 

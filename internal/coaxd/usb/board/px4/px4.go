@@ -35,22 +35,29 @@ var Backend = usbdev.Backend{
 	IDs:         supportedIDs,
 	Supports:    Supports,
 	Layout:      Layout,
+	Enclosure:   enclosureName,
 	Open:        open,
 }
 
 // Layout is the board's tuner arrangement, the same on every product this
 // backend claims: two satellite tuners then two terrestrial ones. open builds
 // its tuners from the same function, so the two cannot disagree.
-func Layout(usbio.ID) []device.TunerInfo {
+func Layout(id usbio.ID) []device.TunerInfo {
+	// The supply is one line for the board's satellite tuners (plex.LNBClaim),
+	// in or out. The Q3 models have one satellite input for both of their
+	// devices, so it is the enclosure's.
+	supply := "board"
+	if pairedProducts[id.Product] {
+		supply = "card"
+	}
 	descriptors := make([]device.TunerInfo, 0, tunerCount)
 	for index, entry := range layout {
 		descriptor := device.TunerInfo{Index: index, Name: "R850", Deliveries: []string{"ISDB-T"}}
 		if entry.kind == kindSatellite {
 			descriptor.Name, descriptor.Deliveries = "RT710", []string{"ISDB-S"}
-			// The supply is one line for the board's satellite tuners (plex.LNBClaim),
-			// in or out; the RT710's fine gain trim is the only gain there is.
+			// The RT710's fine gain trim is the only gain there is.
 			descriptor.Controls = device.Controls{
-				LNB:  &device.LNBControl{Off: true, Shared: "board"},
+				LNB:  &device.LNBControl{Off: true, Shared: supply},
 				Gain: &device.GainControl{Decibels: rt710.RT710FineGainStepsDB()},
 			}
 		}
@@ -149,7 +156,7 @@ func open(options device.Options) (device.Board, error) {
 	}
 
 	demodBus := frame.Bridge.I2C(2)
-	descriptors := Layout(usbio.ID{})
+	descriptors := Layout(usbio.ID{Vendor: 0x0511, Product: frame.Bridge.ProductID()})
 	for index, entry := range layout {
 		demod := tc90522.New(demodBus, entry.demodID<<1, index%2 == 1)
 		front := &frontend{index: index, kind: entry.kind, demod: demod, lnb: frame.NewLNBClaim()}
@@ -186,6 +193,26 @@ func open(options device.Options) (device.Board, error) {
 // pairedProducts are the eight-tuner enclosures, which are two four-tuner USB
 // devices sharing one serial number.
 var pairedProducts = map[uint16]bool{0x084a: true, 0x024a: true, 0x074a: true}
+
+// enclosureName names a Q3 model's enclosure by the serial number its two
+// devices share, less the digit that numbers them, where both list it, or else
+// by the two devices behind one hub. Empty for the four-tuner models.
+func enclosureName(attached []usbio.Attached, own usbio.Attached) string {
+	if !pairedProducts[own.ID.Product] {
+		return ""
+	}
+	if number, ok := parseDeviceNumber(own.Serial); ok {
+		stem := own.Serial[:serialDigits-1]
+		for _, candidate := range attached {
+			other, ok := parseDeviceNumber(candidate.Serial)
+			if ok && candidate.ID == own.ID && candidate.Location != own.Location &&
+				other != number && candidate.Serial[:serialDigits-1] == stem {
+				return stem
+			}
+		}
+	}
+	return plex.PartnerEnclosure(attached, own, own.ID.Product)
+}
 
 // serialDigits is how long these enclosures' serial numbers are. A string of
 // any other length is not one of theirs, whatever else it may be.

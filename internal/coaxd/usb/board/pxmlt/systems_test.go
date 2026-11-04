@@ -8,6 +8,7 @@ import (
 
 	"github.com/Till0196/coax/internal/coaxd/demod/sony"
 	"github.com/Till0196/coax/internal/coaxd/tuning"
+	"github.com/Till0196/coax/pkg/usbio"
 )
 
 // TestSupportsMatchesTheDeliveryList keeps the two halves of the board's
@@ -88,5 +89,18 @@ func TestEveryDeliverySelectsTheRightSystem(t *testing.T) {
 		if got.IsSatellite() != (delivery == "ISDBS" || delivery == "DVBS" || delivery == "DVBS2") {
 			t.Errorf("%s is on the wrong side of the satellite split", delivery)
 		}
+	}
+}
+
+// Only the PX-MLT8PE's supply is the enclosure's.
+func TestOnlyTheMLT8PESupplyIsTheEnclosures(t *testing.T) {
+	for product, want := range map[uint16]string{0x084e: "board", 0x0252: "card", 0x0253: "card"} {
+		lnb := Layout(usbio.ID{Vendor: 0x0511, Product: product})[0].Controls.LNB
+		if lnb == nil || lnb.Shared != want {
+			t.Errorf("product %#04x lists the supply %+v, want shared %q", product, lnb, want)
+		}
+	}
+	if got := enclosureName(nil, usbio.Attached{ID: usbio.ID{Vendor: 0x0511, Product: 0x084e}}); got != "" {
+		t.Errorf("a PX-MLT5U names an enclosure %q", got)
 	}
 }
