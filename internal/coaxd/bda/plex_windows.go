@@ -132,6 +132,20 @@ func CardReaderGroup(display string) string {
 	return fmt.Sprintf("%04x:%s", asicen.USBProduct(tuner), hub)
 }
 
+// readPlexSignal fills the C/N from the vendor interface of a PLEX tuner.
+func (device *Device) readPlexSignal(status *Status) {
+	if device.plex == nil {
+		return
+	}
+	control, err := device.plex.vendor()
+	if err != nil {
+		return
+	}
+	if cnr, measured, err := control.SignalLevel(); err == nil && measured {
+		status.CNR = Measurement{Value: cnr, Known: true}
+	}
+}
+
 // plexStreamAt is how a graph on this tuner reads its transmission control
 // block, or nil when it has none to read.
 func (device *Device) plexStreamAt() func(int) (uint16, error) {

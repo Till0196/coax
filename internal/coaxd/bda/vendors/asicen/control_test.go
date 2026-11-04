@@ -6,6 +6,7 @@ package asicen
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -275,5 +276,28 @@ func TestRestoreSyncRejectsMalformedPackets(t *testing.T) {
 		if e := c.RestoreSync(b); e == nil {
 			t.Fatal("accepted malformed packets")
 		}
+	}
+}
+
+// signalDriver answers the signal level item with a fixed value.
+type signalDriver struct{ level uint32 }
+
+func (d signalDriver) Get(_ win32.GUID, id uint32, b []byte) (uint32, error) {
+	if id != propSignalLevel || len(b) != 4 {
+		return 0, errors.New("unexpected item")
+	}
+	binary.LittleEndian.PutUint32(b, d.level)
+	return 4, nil
+}
+
+func (signalDriver) Set(win32.GUID, uint32, []byte) error { return errors.New("unexpected set") }
+
+func TestSignalLevelIsHundredthsOfADecibel(t *testing.T) {
+	cnr, measured, err := (&Control{properties: signalDriver{level: 2581}}).SignalLevel()
+	if err != nil || !measured || cnr != 25.81 {
+		t.Fatalf("C/N %v, measured %v, %v", cnr, measured, err)
+	}
+	if _, measured, err := (&Control{properties: signalDriver{}}).SignalLevel(); err != nil || measured {
+		t.Fatalf("a zero level counted as a measurement: %v", err)
 	}
 }

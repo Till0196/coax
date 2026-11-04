@@ -142,3 +142,26 @@ func (c *Control) RestoreSync(data []byte) error {
 
 // Close waits for property exchanges before the graph releases their COM owner.
 func (c *Control) Close() { c.mutex.Lock(); defer c.mutex.Unlock(); c.closed = true }
+
+// propSignalLevel is the C/N of the tuned carrier in hundredths of a dB.
+const propSignalLevel = 58
+
+// SignalLevel reads the C/N of the tuned carrier in dB, and reports whether
+// the driver has a measurement.
+func (c *Control) SignalLevel() (float64, bool, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.closed {
+		return 0, false, io.ErrClosedPipe
+	}
+	var b [4]byte
+	n, err := c.properties.Get(Set, propSignalLevel, b[:])
+	if err != nil {
+		return 0, false, fmt.Errorf("ASICEN signal level: %w", err)
+	}
+	if n != uint32(len(b)) {
+		return 0, false, fmt.Errorf("ASICEN signal level: got %d bytes", n)
+	}
+	level := binary.LittleEndian.Uint32(b[:])
+	return float64(level) / 100, level != 0, nil
+}

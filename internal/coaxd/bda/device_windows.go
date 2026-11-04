@@ -278,6 +278,14 @@ func (device *Device) Status() (Status, error) {
 		Names:  []string{"graph_running", fmt.Sprintf("data=%d", written)},
 	}
 	device.readSignalStatistics(&status)
+	// A PLEX driver's own strength is a figure out of 100, no level in dBm;
+	// its signal level is the C/N.
+	if device.plex != nil {
+		status.Strength = Measurement{}
+		if status.Locked {
+			device.readPlexSignal(&status)
+		}
+	}
 	// A Siano driver's own strength is no level in dBm; its statistics carry
 	// the SNR, shown as the C/N, and the in-band power.
 	if path, ok := siano.ControlPath(device.tuner.Display); ok {
