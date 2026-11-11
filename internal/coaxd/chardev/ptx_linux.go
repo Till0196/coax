@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"syscall"
 	"unsafe"
+
+	"github.com/Till0196/coax/internal/coaxd/sigmask"
 )
 
 // System is one of the transmission standards a px4_drv character device can be
@@ -296,70 +298,8 @@ func ioctlRun(file *os.File, ioctl func(descriptor uintptr) syscall.Errno) error
 // where the same sequence from a C program succeeded twenty times out of
 // twenty.
 //
-// A blocked signal does not count as pending to the kernel, so this is enough
-// and the signal is delivered on the way out. The thread is locked because the
-// mask belongs to the thread rather than the goroutine.
+// A blocked signal does not count as pending to the kernel, so holding them
+// off with sigmask.Hold is enough.
 func whileTheDriverWaits(call func() error) error {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	held := heldDuringDriverCalls
-	var previous uint64
-	if err := sigprocmask(sigBlock, &held, &previous); err != nil {
-		// Nothing was masked, so there is nothing to put back.
-		return call()
-	}
-	defer func() { _ = sigprocmask(sigSetMask, &previous, nil) }()
-	return call()
-}
-
-// heldDuringDriverCalls is every signal held off for the duration of a call
-// into one of these drivers, which is every signal that may be held off at all.
-//
-// SIGURG is the one that matters, but nothing about these drivers is specific
-// to the preemption signal: a window resize, a SIGHUP asking the daemon to
-// reload or a profile being taken breaks a tune in the same way and just as
-// silently.
-//
-// The synchronous ones are left alone: SIGSEGV, SIGBUS, SIGFPE, SIGILL,
-// SIGTRAP, SIGABRT and SIGSYS are raised by the running instruction, and
-// blocking one makes the kernel reset the handler and kill the process. SIGKILL
-// and SIGSTOP cannot be blocked and are left out to say so.
-//
-// The mask belongs to this thread, so a SIGTERM arriving mid-read is still
-// taken by one of the others, and new threads start from the process's original
-// mask.
-var heldDuringDriverCalls = ^uint64(0) &^ (signalBit(syscall.SIGSEGV) |
-	signalBit(syscall.SIGBUS) |
-	signalBit(syscall.SIGFPE) |
-	signalBit(syscall.SIGILL) |
-	signalBit(syscall.SIGTRAP) |
-	signalBit(syscall.SIGABRT) |
-	signalBit(syscall.SIGSYS) |
-	signalBit(syscall.SIGKILL) |
-	signalBit(syscall.SIGSTOP))
-
-// The two ways of changing a thread's signal mask that are wanted here, as the
-// kernel's numbers rather than the C library's names.
-const (
-	sigBlock   = 0
-	sigSetMask = 2
-)
-
-func signalBit(signal syscall.Signal) uint64 { return 1 << (uint(signal) - 1) }
-
-// sigprocmask changes the calling thread's signal mask, as the raw system call
-// rather than pthread_sigmask. RawSyscall is right because changing a mask does
-// not block.
-func sigprocmask(how int, set, previous *uint64) error {
-	var previousArgument unsafe.Pointer
-	if previous != nil {
-		previousArgument = unsafe.Pointer(previous)
-	}
-	_, _, errno := syscall.RawSyscall6(syscall.SYS_RT_SIGPROCMASK,
-		uintptr(how), uintptr(unsafe.Pointer(set)), uintptr(previousArgument),
-		unsafe.Sizeof(*set), 0, 0)
-	if errno != 0 {
-		return errno
-	}
-	return nil
+	return sigmask.Hold(call)
 }
