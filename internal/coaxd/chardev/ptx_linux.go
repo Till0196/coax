@@ -292,9 +292,8 @@ func ioctlRun(file *os.File, ioctl func(descriptor uintptr) syscall.Errno) error
 // hundred milliseconds runs its twenty turns in microseconds and gives up,
 // reporting a channel that would not lock or a read of nothing.
 //
-// The Go runtime sends SIGURG to preempt a goroutine, and its monitor sends one
-// to any thread in a system call for more than a few tens of microseconds.
-// Measured on a PT3, tuning through the daemon failed about one time in three
+// The Go runtime preempts goroutines with SIGURG, and a call can enter the
+// driver with one pending (see the sigmask package). Measured on a PT3, tuning through the daemon failed about one time in three
 // where the same sequence from a C program succeeded twenty times out of
 // twenty.
 //

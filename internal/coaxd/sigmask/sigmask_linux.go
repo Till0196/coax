@@ -6,9 +6,12 @@
 // Package sigmask runs a system call with signals held off its thread, for
 // drivers that go wrong when a signal is pending while they work.
 //
-// The Go runtime sends SIGURG to preempt a goroutine, and its monitor sends one
-// to any thread in a system call for more than a few tens of microseconds, so a
-// Go program has a signal pending far more often than a C program does.
+// The Go runtime sends SIGURG to a thread running Go code to preempt its
+// goroutine: its monitor does when one goroutine has run for ten milliseconds,
+// and the garbage collector does whenever it stops goroutines. A thread that
+// enters a system call just as one is sent takes it into the kernel as a pending
+// signal, so a Go program has a signal pending far more often than a C program
+// does.
 package sigmask
 
 import (
