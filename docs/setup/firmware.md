@@ -23,7 +23,7 @@ PT3、US-3POUT、KTV-FSUSB2（EM2874版）や、OSのドライバー経由（`dv
 | バックエンド | 主なデバイス | 置くファイル | 入手方法 |
 | --- | --- | --- | --- |
 | `px4`、`pxmlt`、`isdb2056`、`s1ur` | PX-W3U4、PX-Q3U4、PX-MLT5PE、PX-M1UR、PX-S1URなど | `it930x-firmware.bin` | PLEXのドライバーから[`fwextract`](#fwextract)で取り出す |
-| `px3` | PX-S3U、PX-W3U3など | `asv5211-firmware.bin` | 同上 |
+| `px3`、`ut100b` | PX-S3U、PX-W3U3、QRS-UT100Bなど | `asv5211-firmware.bin` | 同上 |
 | `fsusb2i` | KTV-FSMINI、KTV-FSUSB2/V3 | `it9175-firmware.bin` | 恵安のドライバーから`fwextract`で取り出す |
 | `t230` | MyGica T230系 | `dvb-demod-si2168-*.fw`（a20、a30、b40、d60のうちデバイスに合うもの）とチューナー用（[t230.md](../boards/t230.md#ファームウェア)）| [公開ファームウェア集](#公開ファームウェア集から入手できるもの) |
 | `s270` | MyGica S270、PX-S1UD | `isdbt_rio.inp`（DVB-Tも受けるなら`dvb_rio.inp`も）| 公開ファームウェア集 |
@@ -111,7 +111,7 @@ TBS製品は、メーカーも[tbsdtv.com](https://www.tbsdtv.com/)でファー�
 | --- | --- | --- |
 | `it930x-firmware.bin` | `px4`、`pxmlt`、`isdb2056`、`s1ur` | PLEX配布のWindowsドライバー（例: `202104_PX-W3U4_Driver.zip`）。[px4_drv](https://github.com/nns779/px4_drv)の`fwtool`でも同じものが取り出せます |
 | `it9175-firmware.bin` | `fsusb2i` | 恵安配布のドライバーパッケージ（`digibest_tv_2j997.zip`）|
-| `asv5211-firmware.bin` | `px3` | PLEX公式のLinuxドライバー（`PX-SERIES_ver.1.0_Linux_Driver.zip`）|
+| `asv5211-firmware.bin` | `px3`、`ut100b` | PLEX公式のLinuxドライバー（`PX-SERIES_ver.1.0_Linux_Driver.zip`）|
 | `dvb_driver_si2141_rom60.fw`／`rom61.fw` | `t230` | MyGica／Geniatech配布のドライバーパッケージ。`dvb-tuner-si2141-a10-01.fw`へ自動フォールバックするので、この2つ自体は通常不要です。フォールバック先のsi2142向けファームウェアは必ず置いてください（[t230.md](../boards/t230.md#ファームウェア)）|
 
 ### 入手先
@@ -125,7 +125,7 @@ PLEXの[ダウンロードページ](https://plex-net.co.jp/download/)に各製�
 `202104_PX-W3U4_Driver.zip`、`202104_PX-MLT5PE_Driver.zip`、`PX-M1UR_Driver.zip`、`PX-S1UR_Driver.zip`の4つを取り出して比べたところ、中身は同一でした（`294a1d673a9d6e8b48a6a46c51da727a9f23df5d5ce6eb2495732f19462698fa`）。
 使うデバイスのものをダウンロードすれば十分です。
 
-**`asv5211-firmware.bin`**（`px3`）
+**`asv5211-firmware.bin`**（`px3`、`ut100b`）
 
 PLEXのサイトのファイル（`https://plex-net.co.jp/plex/PX-SERIES_ver.1.0_Linux_Driver.zip`）は404になっているため、Internet Archiveから取得できます。
 
