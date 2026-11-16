@@ -15,6 +15,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/Till0196/coax/internal/coaxd/sigmask"
 	"github.com/Till0196/coax/internal/coaxd/tuning"
 )
 
@@ -129,8 +130,18 @@ type Frontend struct {
 	file *os.File
 }
 
+// OpenFrontend opens a frontend to tune it. The open runs with signals held off
+// its thread: the kernel fails a writing open of an idle frontend with EINTR
+// when a signal is pending, and dvb_core drops one reference to the device too
+// many on that path, so that a later failure frees a device that is still
+// registered.
 func OpenFrontend(path string) (*Frontend, error) {
-	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NONBLOCK, 0)
+	var f *os.File
+	err := sigmask.Hold(func() error {
+		var err error
+		f, err = os.OpenFile(path, os.O_RDWR|syscall.O_NONBLOCK, 0)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
