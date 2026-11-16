@@ -43,7 +43,7 @@ coaxが個別に対応しているUSBチューナーは、放送用のドライ�
 
 | ハードウェア | 例 | 通る経路 |
 | --- | --- | --- |
-| USB接続のチューナー | PLEX PX-W3U4、PX-S1UR、PX-W3U3、MyGica T230、KEIAN KTV-FSUSB2、TBS 5520SE、Sony CECH-ZD1 J | 直接USB。Linux、Windows、macOSのいずれでも動きます |
+| USB接続のチューナー | PLEX PX-W3U4、PX-S1UR、PX-W3U3、Quixun QRS-UT100B、MyGica T230、KEIAN KTV-FSUSB2、TBS 5520SE、Sony CECH-ZD1 J | 直接USB。Linux、Windows、macOSのいずれでも動きます |
 | PCIe接続のチューナー | Earthsoft PT3、PLEX PX-W3PE5、PX-MLT5PE、Digital Devices Max M4やPT4K(TBS6812)、その他TBSのPCIeカード | Linuxはpx4_drvやLinux DVB、Windowsは直接USBか、`coaxd`がカードを直接制御する経路 |
 | coaxが対応していないチューナー | Linux DVBかBDAのドライバーがあるもの（一部の機能は使えません）| Linuxは`dvb`、Windowsは`bda` |
 

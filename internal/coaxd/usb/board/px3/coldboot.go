@@ -22,6 +22,16 @@ import (
 // here, which downloads its firmware over the device it already has open.
 var coldIDs = []usbio.ID{{Vendor: 0x1738, Product: 0x5211}, {Vendor: 0x1738, Product: 0x5216}}
 
+// foreignWarmIDs are boards outside PLEX's range that run the same bridge and
+// boot ROM, and so wait under the same cold identifier: the board's own EEPROM
+// decides what it comes back as, whichever firmware image went in. An upload
+// that brings one of these back has worked, though the board is not px3's to
+// open. The Quixun QRS-UT100B is the one known (backend ut100b).
+var foreignWarmIDs = []usbio.ID{{Vendor: 0x3275, Product: 0x7020}}
+
+// bootedIDs is everything a cold board may come back as.
+var bootedIDs = append(append([]usbio.ID(nil), supportedIDs...), foreignWarmIDs...)
+
 const (
 	// enumerationTimeout bounds the wait for a booted board to come back. It
 	// re-enumerates in well under a second; the rest is slack for a hub.
@@ -84,7 +94,7 @@ func bootColdBoards(options device.Options) error {
 				return fmt.Errorf("upload ASV52xx firmware at %s: %w", target.Port, uploadErr)
 			}
 		}
-		warm, err := awaitBootDevice(target.Port, supportedIDs, time.Now().Add(enumerationTimeout))
+		warm, err := awaitBootDevice(target.Port, bootedIDs, time.Now().Add(enumerationTimeout))
 		if err != nil {
 			return err
 		}
@@ -110,7 +120,7 @@ func bootColdBoards(options device.Options) error {
 		}
 	}
 	for _, target := range pending {
-		if _, err := awaitBootDevice(target.Port, supportedIDs, time.Now().Add(enumerationTimeout)); err != nil {
+		if _, err := awaitBootDevice(target.Port, bootedIDs, time.Now().Add(enumerationTimeout)); err != nil {
 			return err
 		}
 	}
@@ -122,11 +132,11 @@ func bootColdBoards(options device.Options) error {
 func openColdAt(port string) (*usbio.Transport, error) {
 	deadline := time.Now().Add(enumerationTimeout)
 	for {
-		candidate, err := awaitBootDevice(port, append(coldIDs, supportedIDs...), deadline)
+		candidate, err := awaitBootDevice(port, append(append([]usbio.ID(nil), coldIDs...), bootedIDs...), deadline)
 		if err != nil {
 			return nil, err
 		}
-		if candidate.ID.In(supportedIDs) {
+		if candidate.ID.In(bootedIDs) {
 			return nil, nil
 		}
 		transport, err := usbio.Open(candidate.Location, coldIDs)

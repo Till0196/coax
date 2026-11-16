@@ -51,6 +51,7 @@ import (
 	"github.com/Till0196/coax/internal/coaxd/usb/board/tbs5520se"
 	"github.com/Till0196/coax/internal/coaxd/usb/board/tbs5530"
 	"github.com/Till0196/coax/internal/coaxd/usb/board/us3pout"
+	"github.com/Till0196/coax/internal/coaxd/usb/board/ut100b"
 	"github.com/Till0196/coax/internal/coaxd/usb/usbdev"
 	"github.com/Till0196/coax/pkg/usbio"
 )
@@ -63,6 +64,7 @@ var backends = []usbdev.Backend{
 	px4.Backend,
 	pxmlt.Backend,
 	px3.Backend,
+	ut100b.Backend,
 	s1ur.Backend,
 	s270.Backend,
 	t230.Backend,
@@ -177,12 +179,16 @@ func BootCold(options Options) error {
 	if err != nil {
 		return err
 	}
+	// A board comes back as whatever its own EEPROM names, which need not be one
+	// of the booting backend's: the ASV52xx's boot ROM serves PLEX's boards and
+	// Quixun's QRS-UT100B alike, and px3 boots them all.
+	booted := warmIDs()
 	var failed []error
 	for _, backend := range backends {
 		if backend.Boot == nil {
 			continue
 		}
-		cold, warm := count(attached, backend.ColdIDs), count(attached, backend.IDs)
+		cold, warm := count(attached, backend.ColdIDs), count(attached, booted)
 		if cold == 0 {
 			continue
 		}
@@ -190,20 +196,20 @@ func BootCold(options Options) error {
 			failed = append(failed, fmt.Errorf("%s: %w", backend.Name, err))
 			continue
 		}
-		if err := awaitBooted(backend, warm+cold); err != nil {
+		if err := awaitBooted(backend, booted, warm+cold); err != nil {
 			failed = append(failed, fmt.Errorf("%s: %w", backend.Name, err))
 		}
 	}
 	return errors.Join(failed...)
 }
 
-// awaitBooted waits for the backend's cold boards to be gone and for want of its
-// boards to be attached under their own identifiers.
-func awaitBooted(backend Backend, want int) error {
+// awaitBooted waits for the backend's cold boards to be gone and for want boards
+// to be attached under the identifiers in booted.
+func awaitBooted(backend Backend, booted []usbio.ID, want int) error {
 	deadline := time.Now().Add(coldBootTimeout)
 	for {
 		attached, err := usbio.Devices()
-		if err == nil && count(attached, backend.ColdIDs) == 0 && count(attached, backend.IDs) >= want {
+		if err == nil && count(attached, backend.ColdIDs) == 0 && count(attached, booted) >= want {
 			return nil
 		}
 		if !time.Now().Before(deadline) {
@@ -211,6 +217,15 @@ func awaitBooted(backend Backend, want int) error {
 		}
 		time.Sleep(coldBootPoll)
 	}
+}
+
+// warmIDs is every identifier some backend opens.
+func warmIDs() []usbio.ID {
+	var ids []usbio.ID
+	for _, backend := range backends {
+		ids = append(ids, backend.IDs...)
+	}
+	return ids
 }
 
 func count(attached []usbio.Attached, ids []usbio.ID) int {

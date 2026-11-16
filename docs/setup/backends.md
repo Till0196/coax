@@ -23,6 +23,7 @@ OSごとの設定は[os.md](os.md)にあります。
 | --- | --- | --- | --- |
 | `t230` | MyGica T230 / T230C / T230C Lite / T230A / T230C2 / T230C2 Lite | 要 | [t230.md](../boards/t230.md) |
 | `px3` | PLEX PX-S3U / S3U2 / W3U2 / W3U3 / W3U3 V2 | 要 | [px3.md](../boards/px3.md) |
+| `ut100b` | Quixun QRS-UT100B | 要 | [ut100b.md](../boards/ut100b.md) |
 | `px4`、`pxmlt`、`isdb2056`、`s1ur` | PLEX / DigiBest製 IT930x系チューナー（PX-W3U4、PX-MLT5PE、PX-M1UR、PX-S1URなど）| 要 | [px4.md](../boards/px4.md) |
 | `us3pout` | DigiBest US-3POUT | 不要 | [us3pout.md](../boards/us3pout.md) |
 | `fsusb2` | KEIAN KTV-FSUSB2（EM2874版）| 不要 | [fsusb2.md](../boards/fsusb2.md) |

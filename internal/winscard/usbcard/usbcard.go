@@ -143,6 +143,7 @@ var slotBackends = map[string]slotNaming{
 	"fsusb2i":   {"KEIAN", "KTV-FSMINI"},
 	"us3pout":   {"DigiBest", "US-3POUT"},
 	"cech-zd1j": {"Sony", "CECH-ZD1 J"},
+	"ut100b":    {"Quixun", "QRS-UT100B"},
 }
 
 // cardSlotBackends are the backends whose boards carry a slot only when the
